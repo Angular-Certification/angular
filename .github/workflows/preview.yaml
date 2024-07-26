@@ -42,7 +42,7 @@ jobs:
             --alias $ALIAS \
             --message "GH Action-${{env.BRANCH_NAME}}-${{github.event.number}}_${{github.event.pull_request.title}}" \
             --json \
-            > ../deploy_output.json
+            > ./deploy_output.json
 
       - name: Generate URL Preview
         id: url_preview
