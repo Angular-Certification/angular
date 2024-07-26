@@ -1,0 +1,45 @@
+name: Netlify Preview Deployment
+on:
+  pull_request:
+    branches:
+      - main
+env:
+    NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_API_TOKEN }}
+    NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}
+jobs:
+  Deploy-Preview-Shared:
+    runs-on: ubuntu-latest
+    environment: Preview
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Use Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20.x'
+          cache: 'yarn'
+
+      - name: Install Netlify CLI
+        run: yarn global add netlify-cli@17.23
+
+      - name: Link Netlify project
+        run: netlify link
+
+      - name: Install Dependencies
+        run: yarn install --frozen-lockfile
+      
+      - name: Build Project Artifacts
+        run: yarn docs:build
+        
+      - name: Deploy Project Artifacts to Netlify
+        run: |
+          echo "Calculating meaningful string as alias"
+          ALIAS=$(node -e "console.log('${{github.run_id}} ${{github.event.number}} ${{github.event.pull_request.title}}'.replaceAll(' ','-').substring(0,37))")
+          echo "Alias: $ALIAS"
+          netlify deploy \
+            --dir ./dist/bin/adev/build/browser \
+            --skip-functions-cache \
+            --alias $ALIAS \
+            --message "GH Action-${{env.BRANCH_NAME}}-${{github.event.number}}_${{github.event.pull_request.title}}" \
+            --json \
+            > ./deploy_output.json
