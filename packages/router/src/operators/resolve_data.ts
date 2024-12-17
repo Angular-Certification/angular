@@ -3,7 +3,7 @@
  * Copyright Google LLC All Rights Reserved.
  *
  * Use of this source code is governed by an MIT-style license that can be
- * found in the LICENSE file at https://angular.io/license
+ * found in the LICENSE file at https://angular.dev/license
  */
 
 import {EnvironmentInjector, ProviderToken, runInInjectionContext} from '@angular/core';
@@ -11,7 +11,7 @@ import {EMPTY, from, MonoTypeOperatorFunction, Observable, of, throwError} from 
 import {catchError, concatMap, first, map, mapTo, mergeMap, takeLast, tap} from 'rxjs/operators';
 
 import {RedirectCommand, ResolveData} from '../models';
-import {NavigationTransition} from '../navigation_transition';
+import type {NavigationTransition} from '../navigation_transition';
 import {
   ActivatedRouteSnapshot,
   getInherited,

@@ -3,7 +3,7 @@
  * Copyright Google LLC All Rights Reserved.
  *
  * Use of this source code is governed by an MIT-style license that can be
- * found in the LICENSE file at https://angular.io/license
+ * found in the LICENSE file at https://angular.dev/license
  */
 
 import * as o from '../../../../output/output_ast';
@@ -56,14 +56,14 @@ const MAX_CHAIN_LENGTH = 256;
  *
  * For example, two `elementStart` operations in sequence:
  *
- * ```typescript
+ * ```ts
  * elementStart(0, 'div');
  * elementStart(1, 'span');
  * ```
  *
  * Can be called as a chain instead:
  *
- * ```typescript
+ * ```ts
  * elementStart(0, 'div')(1, 'span');
  * ```
  */

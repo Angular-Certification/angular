@@ -3,7 +3,7 @@
  * Copyright Google LLC All Rights Reserved.
  *
  * Use of this source code is governed by an MIT-style license that can be
- * found in the LICENSE file at https://angular.io/license
+ * found in the LICENSE file at https://angular.dev/license
  */
 
 import {
@@ -17,6 +17,7 @@ import {
   ParsedHostBindings,
   ParseError,
   parseHostBindings,
+  ParserError,
   R3DirectiveMetadata,
   R3HostDirectiveMetadata,
   R3InputMetadata,
@@ -115,6 +116,8 @@ export function extractDirectiveMetadata(
   annotateForClosureCompiler: boolean,
   compilationMode: CompilationMode,
   defaultSelector: string | null,
+  strictStandalone: boolean,
+  implicitStandaloneValue: boolean,
 ):
   | {
       jitForced: false;
@@ -334,7 +337,7 @@ export function extractDirectiveMetadata(
         dep.token.value.name === 'TemplateRef',
     );
 
-  let isStandalone = false;
+  let isStandalone = implicitStandaloneValue;
   if (directive.has('standalone')) {
     const expr = directive.get('standalone')!;
     const resolved = evaluator.evaluate(expr);
@@ -342,6 +345,14 @@ export function extractDirectiveMetadata(
       throw createValueHasWrongTypeError(expr, resolved, `standalone flag must be a boolean`);
     }
     isStandalone = resolved;
+
+    if (!isStandalone && strictStandalone) {
+      throw new FatalDiagnosticError(
+        ErrorCode.NON_STANDALONE_NOT_ALLOWED,
+        expr,
+        `Only standalone components/directives are allowed when 'strictStandalone' is enabled.`,
+      );
+    }
   }
   let isSignal = false;
   if (directive.has('signals')) {
@@ -1619,15 +1630,38 @@ function evaluateHostExpressionBindings(
   const errors = verifyHostBindings(bindings, createSourceSpan(hostExpr));
   if (errors.length > 0) {
     throw new FatalDiagnosticError(
-      // TODO: provide more granular diagnostic and output specific host expression that
-      // triggered an error instead of the whole host object.
       ErrorCode.HOST_BINDING_PARSE_ERROR,
-      hostExpr,
+      getHostBindingErrorNode(errors[0], hostExpr),
       errors.map((error: ParseError) => error.msg).join('\n'),
     );
   }
 
   return bindings;
+}
+
+/**
+ * Attempts to match a parser error to the host binding expression that caused it.
+ * @param error Error to match.
+ * @param hostExpr Expression declaring the host bindings.
+ */
+function getHostBindingErrorNode(error: ParseError, hostExpr: ts.Expression): ts.Node {
+  // In the most common case the `host` object is an object literal with string values. We can
+  // confidently match the error to its expression by looking at the string value that the parser
+  // failed to parse and the initializers for each of the properties. If we fail to match, we fall
+  // back to the old behavior where the error is reported on the entire `host` object.
+  if (ts.isObjectLiteralExpression(hostExpr) && error.relatedError instanceof ParserError) {
+    for (const prop of hostExpr.properties) {
+      if (
+        ts.isPropertyAssignment(prop) &&
+        ts.isStringLiteralLike(prop.initializer) &&
+        prop.initializer.text === error.relatedError.input
+      ) {
+        return prop.initializer;
+      }
+    }
+  }
+
+  return hostExpr;
 }
 
 /**

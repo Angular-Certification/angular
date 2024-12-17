@@ -3,7 +3,7 @@
  * Copyright Google LLC All Rights Reserved.
  *
  * Use of this source code is governed by an MIT-style license that can be
- * found in the LICENSE file at https://angular.io/license
+ * found in the LICENSE file at https://angular.dev/license
  */
 
 import {
@@ -82,14 +82,14 @@ function makeHttpFeature<KindT extends HttpFeatureKind>(
  * feature functions to `provideHttpClient`. For example, HTTP interceptors can be added using the
  * `withInterceptors(...)` feature.
  *
- * <div class="alert is-helpful">
+ * <div class="docs-alert docs-alert-helpful">
  *
  * It's strongly recommended to enable
  * [`fetch`](https://developer.mozilla.org/en-US/docs/Web/API/Fetch_API) for applications that use
  * Server-Side Rendering for better performance and compatibility. To enable `fetch`, add
  * `withFetch()` feature to the `provideHttpClient()` call at the root of the application:
  *
- * ```
+ * ```ts
  * provideHttpClient(withFetch());
  * ```
  *
@@ -276,7 +276,7 @@ export function withJsonpSupport(): HttpFeature<HttpFeatureKind.JsonpSupport> {
  * this option.
  *
  * @see {@link provideHttpClient}
- * @developerPreview
+ * @publicApi
  */
 export function withRequestsMadeViaParent(): HttpFeature<HttpFeatureKind.RequestsMadeViaParent> {
   return makeHttpFeature(HttpFeatureKind.RequestsMadeViaParent, [

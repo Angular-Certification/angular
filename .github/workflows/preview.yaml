@@ -4,8 +4,8 @@ on:
     branches:
       - main
 env:
-    NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_API_TOKEN }}
-    NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}
+  NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_API_TOKEN }}
+  NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}
 jobs:
   Deploy-Preview-Shared:
     runs-on: ubuntu-latest
@@ -27,10 +27,13 @@ jobs:
 
       - name: Install Dependencies
         run: yarn install --frozen-lockfile
-      
+
       - name: Build Project Artifacts
         run: yarn docs:build
-        
+
+      - name: Rename index.csr.html
+        run: sudo mv ./dist/bin/adev/build/browser/index.csr.html ./dist/bin/adev/build/browser/index.html
+
       - name: Deploy Project Artifacts to Netlify
         run: |
           echo "Calculating meaningful string as alias"

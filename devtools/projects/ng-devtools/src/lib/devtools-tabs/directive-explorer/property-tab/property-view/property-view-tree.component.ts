@@ -3,7 +3,7 @@
  * Copyright Google LLC All Rights Reserved.
  *
  * Use of this source code is governed by an MIT-style license that can be
- * found in the LICENSE file at https://angular.io/license
+ * found in the LICENSE file at https://angular.dev/license
  */
 
 import {FlatTreeControl} from '@angular/cdk/tree';
@@ -20,7 +20,6 @@ import {MatTree, MatTreeNode, MatTreeNodeDef, MatTreeNodePadding} from '@angular
   selector: 'ng-property-view-tree',
   templateUrl: './property-view-tree.component.html',
   styleUrls: ['./property-view-tree.component.scss'],
-  standalone: true,
   imports: [
     MatTree,
     MatTreeNode,

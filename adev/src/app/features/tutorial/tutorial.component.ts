@@ -6,7 +6,7 @@
  * found in the LICENSE file at https://angular.dev/license
  */
 
-import {CommonModule, isPlatformBrowser, NgIf} from '@angular/common';
+import {isPlatformBrowser, NgComponentOutlet, NgTemplateOutlet} from '@angular/common';
 import {
   AfterViewInit,
   ChangeDetectionStrategy,
@@ -22,6 +22,7 @@ import {
   Type,
   ViewChild,
 } from '@angular/core';
+import {takeUntilDestroyed} from '@angular/core/rxjs-interop';
 import {
   ClickOutside,
   DocContent,
@@ -29,6 +30,9 @@ import {
   IconComponent,
   NavigationItem,
   NavigationList,
+  TutorialType,
+  TutorialNavigationData,
+  TutorialNavigationItem,
 } from '@angular/docs';
 import {ActivatedRoute, RouterLink} from '@angular/router';
 import {filter} from 'rxjs/operators';
@@ -41,15 +45,20 @@ import {
   EmbeddedEditor,
 } from '../../editor/index';
 import {SplitResizerHandler} from './split-resizer-handler.service';
-import {TutorialType} from '@angular/docs';
-import {TutorialNavigationData, TutorialNavigationItem} from '@angular/docs';
 
 const INTRODUCTION_LABEL = 'Introduction';
 
 @Component({
   selector: 'adev-tutorial',
-  standalone: true,
-  imports: [CommonModule, DocViewer, NavigationList, ClickOutside, NgIf, RouterLink, IconComponent],
+  imports: [
+    NgComponentOutlet,
+    NgTemplateOutlet,
+    DocViewer,
+    NavigationList,
+    ClickOutside,
+    RouterLink,
+    IconComponent,
+  ],
   templateUrl: './tutorial.component.html',
   styleUrls: [
     './tutorial.component.scss',
@@ -102,6 +111,7 @@ export default class Tutorial implements AfterViewInit {
         filter(() =>
           Boolean(this.route?.routeConfig?.path?.startsWith(`${PagePrefix.TUTORIALS}/`)),
         ),
+        takeUntilDestroyed(),
       )
       .subscribe((data) => {
         const docContent = (data['docContent'] as DocContent | undefined)?.contents ?? null;
@@ -143,7 +153,7 @@ export default class Tutorial implements AfterViewInit {
 
     await Promise.all(
       Object.entries(this.embeddedTutorialManager.answerFiles()).map(([path, contents]) =>
-        nodeRuntimeSandbox.writeFile(path, contents as string | Buffer),
+        nodeRuntimeSandbox.writeFile(path, contents as string | Uint8Array),
       ),
     );
 
@@ -161,7 +171,7 @@ export default class Tutorial implements AfterViewInit {
 
     await Promise.all(
       Object.entries(this.embeddedTutorialManager.tutorialFiles()).map(([path, contents]) =>
-        nodeRuntimeSandbox.writeFile(path, contents as string | Buffer),
+        nodeRuntimeSandbox.writeFile(path, contents as string | Uint8Array),
       ),
     );
 

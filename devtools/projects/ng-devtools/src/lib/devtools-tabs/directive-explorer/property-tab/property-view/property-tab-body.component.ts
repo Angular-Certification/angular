@@ -3,7 +3,7 @@
  * Copyright Google LLC All Rights Reserved.
  *
  * Use of this source code is governed by an MIT-style license that can be
- * found in the LICENSE file at https://angular.io/license
+ * found in the LICENSE file at https://angular.dev/license
  */
 
 import {Component, computed, input, output} from '@angular/core';
@@ -17,7 +17,6 @@ import {PropertyViewComponent} from './property-view.component';
   templateUrl: './property-tab-body.component.html',
   selector: 'ng-property-tab-body',
   styleUrls: ['./property-tab-body.component.scss'],
-  standalone: true,
   imports: [PropertyViewComponent],
 })
 export class PropertyTabBodyComponent {

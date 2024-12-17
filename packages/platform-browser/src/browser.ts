@@ -3,7 +3,7 @@
  * Copyright Google LLC All Rights Reserved.
  *
  * Use of this source code is governed by an MIT-style license that can be
- * found in the LICENSE file at https://angular.io/license
+ * found in the LICENSE file at https://angular.dev/license
  */
 
 import {
@@ -49,7 +49,6 @@ import {BrowserGetTestability} from './browser/testability';
 import {BrowserXhr} from './browser/xhr';
 import {DomRendererFactory2} from './dom/dom_renderer';
 import {DomEventsPlugin} from './dom/events/dom_events';
-import {EventDelegationPlugin} from './dom/events/event_delegation';
 import {EVENT_MANAGER_PLUGINS, EventManager} from './dom/events/event_manager';
 import {KeyEventsPlugin} from './dom/events/key_events';
 import {SharedStylesHost} from './dom/shared_styles_host';
@@ -76,7 +75,7 @@ export {ApplicationConfig};
  * The root component passed into this function *must* be a standalone one (should have the
  * `standalone: true` flag in the `@Component` decorator config).
  *
- * ```typescript
+ * ```angular-ts
  * @Component({
  *   standalone: true,
  *   template: 'Hello world!'
@@ -89,7 +88,7 @@ export {ApplicationConfig};
  * You can add the list of providers that should be available in the application injector by
  * specifying the `providers` field in an object passed as the second argument:
  *
- * ```typescript
+ * ```ts
  * await bootstrapApplication(RootComponent, {
  *   providers: [
  *     {provide: BACKEND_URL, useValue: 'https://yourdomain.com/api'}
@@ -100,7 +99,7 @@ export {ApplicationConfig};
  * The `importProvidersFrom` helper method can be used to collect all providers from any
  * existing NgModule (and transitively from all NgModules that it imports):
  *
- * ```typescript
+ * ```ts
  * await bootstrapApplication(RootComponent, {
  *   providers: [
  *     importProvidersFrom(SomeNgModule)
@@ -113,7 +112,7 @@ export {ApplicationConfig};
  * providers using `provideProtractorTestingSupport()` function and adding them into the `providers`
  * array, for example:
  *
- * ```typescript
+ * ```ts
  * import {provideProtractorTestingSupport} from '@angular/platform-browser';
  *
  * await bootstrapApplication(RootComponent, {providers: [provideProtractorTestingSupport()]});
@@ -241,11 +240,6 @@ const BROWSER_MODULE_PROVIDERS: Provider[] = [
     deps: [DOCUMENT, NgZone, PLATFORM_ID],
   },
   {provide: EVENT_MANAGER_PLUGINS, useClass: KeyEventsPlugin, multi: true, deps: [DOCUMENT]},
-  {
-    provide: EVENT_MANAGER_PLUGINS,
-    useClass: EventDelegationPlugin,
-    multi: true,
-  },
   DomRendererFactory2,
   SharedStylesHost,
   EventManager,
@@ -283,22 +277,5 @@ export class BrowserModule {
           `to common directives such as NgIf and NgFor, import the \`CommonModule\` instead.`,
       );
     }
-  }
-
-  /**
-   * Configures a browser-based app to transition from a server-rendered app, if
-   * one is present on the page.
-   *
-   * @param params An object containing an identifier for the app to transition.
-   * The ID must match between the client and server versions of the app.
-   * @returns The reconfigured `BrowserModule` to import into the app's root `AppModule`.
-   *
-   * @deprecated Use {@link APP_ID} instead to set the application ID.
-   */
-  static withServerTransition(params: {appId: string}): ModuleWithProviders<BrowserModule> {
-    return {
-      ngModule: BrowserModule,
-      providers: [{provide: APP_ID, useValue: params.appId}],
-    };
   }
 }

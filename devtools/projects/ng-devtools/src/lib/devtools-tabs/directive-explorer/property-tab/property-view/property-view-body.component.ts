@@ -3,7 +3,7 @@
  * Copyright Google LLC All Rights Reserved.
  *
  * Use of this source code is governed by an MIT-style license that can be
- * found in the LICENSE file at https://angular.io/license
+ * found in the LICENSE file at https://angular.dev/license
  */
 
 import {CdkDragDrop, moveItemInArray, CdkDropList, CdkDrag} from '@angular/cdk/drag-drop';
@@ -26,7 +26,6 @@ import {MatExpansionModule} from '@angular/material/expansion';
   selector: 'ng-property-view-body',
   templateUrl: './property-view-body.component.html',
   styleUrls: ['./property-view-body.component.scss'],
-  standalone: true,
   imports: [
     MatExpansionModule,
     CdkDropList,
@@ -166,7 +165,6 @@ export class PropertyViewBodyComponent {
       }
     `,
   ],
-  standalone: true,
   imports: [MatExpansionModule, MatChipsModule, MatTooltip, ResolutionPathComponent],
 })
 export class DependencyViewerComponent {
@@ -186,7 +184,6 @@ export class DependencyViewerComponent {
       }
     `,
   ],
-  standalone: true,
   imports: [DependencyViewerComponent],
 })
 export class InjectedServicesComponent {

@@ -3,7 +3,7 @@
  * Copyright Google LLC All Rights Reserved.
  *
  * Use of this source code is governed by an MIT-style license that can be
- * found in the LICENSE file at https://angular.io/license
+ * found in the LICENSE file at https://angular.dev/license
  */
 import {
   Directive,
@@ -42,7 +42,7 @@ interface CssClassState {
  * @ngModule CommonModule
  *
  * @usageNotes
- * ```
+ * ```html
  *     <some-element [ngClass]="'first second'">...</some-element>
  *
  *     <some-element [ngClass]="['first', 'second']">...</some-element>
@@ -68,7 +68,6 @@ interface CssClassState {
  */
 @Directive({
   selector: '[ngClass]',
-  standalone: true,
 })
 export class NgClass implements DoCheck {
   private initialClasses = EMPTY_ARRAY;

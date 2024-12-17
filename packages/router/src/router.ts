@@ -3,7 +3,7 @@
  * Copyright Google LLC All Rights Reserved.
  *
  * Use of this source code is governed by an MIT-style license that can be
- * found in the LICENSE file at https://angular.io/license
+ * found in the LICENSE file at https://angular.dev/license
  */
 
 import {Location} from '@angular/common';
@@ -12,7 +12,7 @@ import {
   Injectable,
   Type,
   ɵConsole as Console,
-  ɵPendingTasks as PendingTasks,
+  ɵPendingTasksInternal as PendingTasks,
   ɵRuntimeError as RuntimeError,
 } from '@angular/core';
 import {Observable, Subject, Subscription, SubscriptionLike} from 'rxjs';
@@ -57,10 +57,6 @@ import {
 import {validateConfig} from './utils/config';
 import {afterNextNavigation} from './utils/navigations';
 import {standardizeConfig} from './components/empty_outlet';
-
-function defaultErrorHandler(error: any): never {
-  throw error;
-}
 
 /**
  * The equivalent `IsActiveMatchOptions` options for `Router.isActive` is called with `true`
@@ -141,15 +137,6 @@ export class Router {
   get routerState() {
     return this.stateManager.getRouterState();
   }
-
-  /**
-   * A handler for navigation errors in this NgModule.
-   *
-   * @deprecated Subscribe to the `Router` events and watch for `NavigationError` instead.
-   *   `provideRouter` has the `withNavigationErrorHandler` feature to make this easier.
-   * @see {@link withNavigationErrorHandler}
-   */
-  errorHandler: (error: any) => any = this.options.errorHandler || defaultErrorHandler;
 
   /**
    * True if at least one navigation event has occurred,
@@ -452,7 +439,7 @@ export class Router {
       navigationExtras;
     const f = preserveFragment ? this.currentUrlTree.fragment : fragment;
     let q: Params | null = null;
-    switch (queryParamsHandling) {
+    switch (queryParamsHandling ?? this.options.defaultQueryParamsHandling) {
       case 'merge':
         q = {...this.currentUrlTree.queryParams, ...queryParams};
         break;

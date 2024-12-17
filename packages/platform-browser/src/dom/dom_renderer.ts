@@ -3,7 +3,7 @@
  * Copyright Google LLC All Rights Reserved.
  *
  * Use of this source code is governed by an MIT-style license that can be
- * found in the LICENSE file at https://angular.io/license
+ * found in the LICENSE file at https://angular.dev/license
  */
 
 import {DOCUMENT, isPlatformServer, ɵgetDOM as getDOM} from '@angular/common';
@@ -22,12 +22,16 @@ import {
   RendererType2,
   ViewEncapsulation,
   ɵRuntimeError as RuntimeError,
+  type ListenerOptions,
+  ɵTracingService as TracingService,
+  ɵTracingSnapshot as TracingSnapshot,
+  Optional,
 } from '@angular/core';
 
 import {RuntimeErrorCode} from '../errors';
 
 import {EventManager} from './events/event_manager';
-import {SharedStylesHost} from './shared_styles_host';
+import {createLinkElement, SharedStylesHost} from './shared_styles_host';
 
 export const NAMESPACE_URIS: {[ns: string]: string} = {
   'svg': 'http://www.w3.org/2000/svg',
@@ -94,6 +98,9 @@ export class DomRendererFactory2 implements RendererFactory2, OnDestroy {
     @Inject(PLATFORM_ID) readonly platformId: Object,
     readonly ngZone: NgZone,
     @Inject(CSP_NONCE) private readonly nonce: string | null = null,
+    @Inject(TracingService)
+    @Optional()
+    private readonly tracingService: TracingService<TracingSnapshot> | null = null,
   ) {
     this.platformIsServer = isPlatformServer(platformId);
     this.defaultRenderer = new DefaultDomRenderer2(
@@ -101,6 +108,7 @@ export class DomRendererFactory2 implements RendererFactory2, OnDestroy {
       doc,
       ngZone,
       this.platformIsServer,
+      this.tracingService,
     );
   }
 
@@ -149,6 +157,7 @@ export class DomRendererFactory2 implements RendererFactory2, OnDestroy {
             doc,
             ngZone,
             platformIsServer,
+            this.tracingService,
           );
           break;
         case ViewEncapsulation.ShadowDom:
@@ -161,6 +170,7 @@ export class DomRendererFactory2 implements RendererFactory2, OnDestroy {
             ngZone,
             this.nonce,
             platformIsServer,
+            this.tracingService,
           );
         default:
           renderer = new NoneEncapsulationDomRenderer(
@@ -171,6 +181,7 @@ export class DomRendererFactory2 implements RendererFactory2, OnDestroy {
             doc,
             ngZone,
             platformIsServer,
+            this.tracingService,
           );
           break;
       }
@@ -200,6 +211,7 @@ class DefaultDomRenderer2 implements Renderer2 {
     private readonly doc: Document,
     private readonly ngZone: NgZone,
     private readonly platformIsServer: boolean,
+    private readonly tracingService: TracingService<TracingSnapshot> | null,
   ) {}
 
   destroy(): void {}
@@ -243,10 +255,8 @@ class DefaultDomRenderer2 implements Renderer2 {
     }
   }
 
-  removeChild(parent: any, oldChild: any): void {
-    if (parent) {
-      parent.removeChild(oldChild);
-    }
+  removeChild(_parent: any, oldChild: any): void {
+    oldChild.remove();
   }
 
   selectRootElement(selectorOrNode: string | any, preserveContent?: boolean): any {
@@ -344,6 +354,7 @@ class DefaultDomRenderer2 implements Renderer2 {
     target: 'window' | 'document' | 'body' | any,
     event: string,
     callback: (event: any) => boolean,
+    options?: ListenerOptions,
   ): () => void {
     (typeof ngDevMode === 'undefined' || ngDevMode) &&
       this.throwOnSyntheticProps &&
@@ -355,10 +366,17 @@ class DefaultDomRenderer2 implements Renderer2 {
       }
     }
 
+    let wrappedCallback = this.decoratePreventDefault(callback);
+
+    if (this.tracingService !== null && this.tracingService.wrapEventListener) {
+      wrappedCallback = this.tracingService.wrapEventListener(target, event, wrappedCallback);
+    }
+
     return this.eventManager.addEventListener(
       target,
       event,
-      this.decoratePreventDefault(callback),
+      wrappedCallback,
+      options,
     ) as VoidFunction;
   }
 
@@ -419,8 +437,9 @@ class ShadowDomRenderer extends DefaultDomRenderer2 {
     ngZone: NgZone,
     nonce: string | null,
     platformIsServer: boolean,
+    tracingService: TracingService<TracingSnapshot> | null,
   ) {
-    super(eventManager, doc, ngZone, platformIsServer);
+    super(eventManager, doc, ngZone, platformIsServer, tracingService);
     this.shadowRoot = (hostEl as any).attachShadow({mode: 'open'});
 
     this.sharedStylesHost.addHost(this.shadowRoot);
@@ -436,6 +455,23 @@ class ShadowDomRenderer extends DefaultDomRenderer2 {
       styleEl.textContent = style;
       this.shadowRoot.appendChild(styleEl);
     }
+
+    // Apply any external component styles to the shadow root for the component's element.
+    // The ShadowDOM renderer uses an alternative execution path for component styles that
+    // does not use the SharedStylesHost that other encapsulation modes leverage. Much like
+    // the manual addition of embedded styles directly above, any external stylesheets
+    // must be manually added here to ensure ShadowDOM components are correctly styled.
+    // TODO: Consider reworking the DOM Renderers to consolidate style handling.
+    const styleUrls = component.getExternalStyles?.();
+    if (styleUrls) {
+      for (const styleUrl of styleUrls) {
+        const linkEl = createLinkElement(styleUrl, doc);
+        if (nonce) {
+          linkEl.setAttribute('nonce', nonce);
+        }
+        this.shadowRoot.appendChild(linkEl);
+      }
+    }
   }
 
   private nodeOrShadowRoot(node: any): any {
@@ -448,8 +484,8 @@ class ShadowDomRenderer extends DefaultDomRenderer2 {
   override insertBefore(parent: any, newChild: any, refChild: any): void {
     return super.insertBefore(this.nodeOrShadowRoot(parent), newChild, refChild);
   }
-  override removeChild(parent: any, oldChild: any): void {
-    return super.removeChild(this.nodeOrShadowRoot(parent), oldChild);
+  override removeChild(_parent: any, oldChild: any): void {
+    return super.removeChild(null, oldChild);
   }
   override parentNode(node: any): any {
     return this.nodeOrShadowRoot(super.parentNode(this.nodeOrShadowRoot(node)));
@@ -462,6 +498,7 @@ class ShadowDomRenderer extends DefaultDomRenderer2 {
 
 class NoneEncapsulationDomRenderer extends DefaultDomRenderer2 {
   private readonly styles: string[];
+  private readonly styleUrls?: string[];
 
   constructor(
     eventManager: EventManager,
@@ -471,14 +508,16 @@ class NoneEncapsulationDomRenderer extends DefaultDomRenderer2 {
     doc: Document,
     ngZone: NgZone,
     platformIsServer: boolean,
+    tracingService: TracingService<TracingSnapshot> | null,
     compId?: string,
   ) {
-    super(eventManager, doc, ngZone, platformIsServer);
+    super(eventManager, doc, ngZone, platformIsServer, tracingService);
     this.styles = compId ? shimStylesContent(compId, component.styles) : component.styles;
+    this.styleUrls = component.getExternalStyles?.(compId);
   }
 
   applyStyles(): void {
-    this.sharedStylesHost.addStyles(this.styles);
+    this.sharedStylesHost.addStyles(this.styles, this.styleUrls);
   }
 
   override destroy(): void {
@@ -486,7 +525,7 @@ class NoneEncapsulationDomRenderer extends DefaultDomRenderer2 {
       return;
     }
 
-    this.sharedStylesHost.removeStyles(this.styles);
+    this.sharedStylesHost.removeStyles(this.styles, this.styleUrls);
   }
 }
 
@@ -503,6 +542,7 @@ class EmulatedEncapsulationDomRenderer2 extends NoneEncapsulationDomRenderer {
     doc: Document,
     ngZone: NgZone,
     platformIsServer: boolean,
+    tracingService: TracingService<TracingSnapshot> | null,
   ) {
     const compId = appId + '-' + component.id;
     super(
@@ -513,6 +553,7 @@ class EmulatedEncapsulationDomRenderer2 extends NoneEncapsulationDomRenderer {
       doc,
       ngZone,
       platformIsServer,
+      tracingService,
       compId,
     );
     this.contentAttr = shimContentAttribute(compId);

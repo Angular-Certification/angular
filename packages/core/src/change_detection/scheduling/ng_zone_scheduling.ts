@@ -3,7 +3,7 @@
  * Copyright Google LLC All Rights Reserved.
  *
  * Use of this source code is governed by an MIT-style license that can be
- * found in the LICENSE file at https://angular.io/license
+ * found in the LICENSE file at https://angular.dev/license
  */
 
 import {Subscription} from 'rxjs';
@@ -18,9 +18,8 @@ import {
   makeEnvironmentProviders,
   StaticProvider,
 } from '../../di';
-import {ErrorHandler, INTERNAL_APPLICATION_ERROR_HANDLER} from '../../error_handler';
 import {RuntimeError, RuntimeErrorCode} from '../../errors';
-import {PendingTasks} from '../../pending_tasks';
+import {PendingTasksInternal} from '../../pending_tasks';
 import {performanceMarkFeature} from '../../util/performance';
 import {NgZone} from '../../zone';
 import {InternalNgZoneOptions} from '../../zone/ng_zone';
@@ -29,7 +28,9 @@ import {
   ChangeDetectionScheduler,
   ZONELESS_SCHEDULER_DISABLED,
   ZONELESS_ENABLED,
+  SCHEDULE_IN_ROOT_ZONE,
 } from './zoneless_scheduling';
+import {SCHEDULE_IN_ROOT_ZONE_DEFAULT} from './flags';
 
 @Injectable({providedIn: 'root'})
 export class NgZoneChangeDetectionScheduler {
@@ -76,11 +77,14 @@ export const PROVIDED_NG_ZONE = new InjectionToken<boolean>(
 export function internalProvideZoneChangeDetection({
   ngZoneFactory,
   ignoreChangesOutsideZone,
+  scheduleInRootZone,
 }: {
   ngZoneFactory?: () => NgZone;
   ignoreChangesOutsideZone?: boolean;
+  scheduleInRootZone?: boolean;
 }): StaticProvider[] {
-  ngZoneFactory ??= () => new NgZone(getNgZoneOptions());
+  ngZoneFactory ??= () =>
+    new NgZone({...getNgZoneOptions(), scheduleInRootZone} as InternalNgZoneOptions);
   return [
     {provide: NgZone, useFactory: ngZoneFactory},
     {
@@ -113,17 +117,14 @@ export function internalProvideZoneChangeDetection({
         };
       },
     },
-    {provide: INTERNAL_APPLICATION_ERROR_HANDLER, useFactory: ngZoneApplicationErrorHandlerFactory},
     // Always disable scheduler whenever explicitly disabled, even if another place called
     // `provideZoneChangeDetection` without the 'ignore' option.
     ignoreChangesOutsideZone === true ? {provide: ZONELESS_SCHEDULER_DISABLED, useValue: true} : [],
+    {
+      provide: SCHEDULE_IN_ROOT_ZONE,
+      useValue: scheduleInRootZone ?? SCHEDULE_IN_ROOT_ZONE_DEFAULT,
+    },
   ];
-}
-
-export function ngZoneApplicationErrorHandlerFactory() {
-  const zone = inject(NgZone);
-  const userErrorHandler = inject(ErrorHandler);
-  return (e: unknown) => zone.runOutsideAngular(() => userErrorHandler.handleError(e));
 }
 
 /**
@@ -136,7 +137,7 @@ export function ngZoneApplicationErrorHandlerFactory() {
  * `BootstrapOptions` instead.
  *
  * @usageNotes
- * ```typescript
+ * ```ts
  * bootstrapApplication(MyApp, {providers: [
  *   provideZoneChangeDetection({eventCoalescing: true}),
  * ]});
@@ -148,15 +149,18 @@ export function ngZoneApplicationErrorHandlerFactory() {
  */
 export function provideZoneChangeDetection(options?: NgZoneOptions): EnvironmentProviders {
   const ignoreChangesOutsideZone = options?.ignoreChangesOutsideZone;
+  const scheduleInRootZone = (options as any)?.scheduleInRootZone;
   const zoneProviders = internalProvideZoneChangeDetection({
     ngZoneFactory: () => {
       const ngZoneOptions = getNgZoneOptions(options);
+      ngZoneOptions.scheduleInRootZone = scheduleInRootZone;
       if (ngZoneOptions.shouldCoalesceEventChangeDetection) {
         performanceMarkFeature('NgZone_CoalesceEvent');
       }
       return new NgZone(ngZoneOptions);
     },
     ignoreChangesOutsideZone,
+    scheduleInRootZone,
   });
   return makeEnvironmentProviders([
     {provide: PROVIDED_NG_ZONE, useValue: true},
@@ -185,14 +189,13 @@ export interface NgZoneOptions {
    *
    * When button is clicked, because of the event bubbling, both
    * event handlers will be called and 2 change detections will be
-   * triggered. We can coalesce such kind of events to only trigger
+   * triggered. We can coalesce such kind of events to trigger
    * change detection only once.
    *
-   * By default, this option will be false. So the events will not be
-   * coalesced and the change detection will be triggered multiple times.
-   * And if this option be set to true, the change detection will be
-   * triggered async by scheduling a animation frame. So in the case above,
-   * the change detection will only be triggered once.
+   * By default, this option is set to false, meaning events will
+   * not be coalesced, and change detection will be triggered multiple times.
+   * If this option is set to true, change detection will be triggered
+   * once in the scenario described above.
    */
   eventCoalescing?: boolean;
 
@@ -252,7 +255,7 @@ export class ZoneStablePendingTask {
   private readonly subscription = new Subscription();
   private initialized = false;
   private readonly zone = inject(NgZone);
-  private readonly pendingTasks = inject(PendingTasks);
+  private readonly pendingTasks = inject(PendingTasksInternal);
 
   initialize() {
     if (this.initialized) {
