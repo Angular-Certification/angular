@@ -3,7 +3,7 @@
  * Copyright Google LLC All Rights Reserved.
  *
  * Use of this source code is governed by an MIT-style license that can be
- * found in the LICENSE file at https://angular.io/license
+ * found in the LICENSE file at https://angular.dev/license
  */
 
 import {ɵɵdefineInjectable} from '../../di/interface/defs';
@@ -193,7 +193,7 @@ export function defaultIterableDiffersFactory() {
  */
 export class IterableDiffers {
   /** @nocollapse */
-  static ɵprov = /** @pureOrBreakMyCode */ ɵɵdefineInjectable({
+  static ɵprov = /** @pureOrBreakMyCode */ /* @__PURE__ */ ɵɵdefineInjectable({
     token: IterableDiffers,
     providedIn: 'root',
     factory: defaultIterableDiffersFactory,

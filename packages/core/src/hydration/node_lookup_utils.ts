@@ -3,7 +3,7 @@
  * Copyright Google LLC All Rights Reserved.
  *
  * Use of this source code is governed by an MIT-style license that can be
- * found in the LICENSE file at https://angular.io/license
+ * found in the LICENSE file at https://angular.dev/license
  */
 
 import {TNode, TNodeType} from '../render3/interfaces/node';
@@ -19,7 +19,7 @@ import {getFirstNativeNode} from '../render3/node_manipulation';
 import {ɵɵresolveBody} from '../render3/util/misc_utils';
 import {renderStringify} from '../render3/util/stringify_utils';
 import {getNativeByTNode, unwrapRNode} from '../render3/util/view_utils';
-import {assertDefined} from '../util/assert';
+import {assertDefined, assertEqual} from '../util/assert';
 
 import {compressNodeLocation, decompressNodeLocation} from './compression';
 import {
@@ -394,4 +394,40 @@ export function calcPathForNode(
     }
   }
   return path!;
+}
+
+/**
+ * Retrieves all comments nodes that contain ngh comments referring to a defer block
+ */
+export function gatherDeferBlocksCommentNodes(
+  doc: Document,
+  node: HTMLElement,
+): Map<string, Comment> {
+  const commentNodesIterator = doc.createNodeIterator(node, NodeFilter.SHOW_COMMENT, {acceptNode});
+  let currentNode: Comment;
+
+  const nodesByBlockId = new Map<string, Comment>();
+  while ((currentNode = commentNodesIterator.nextNode() as Comment)) {
+    const nghPattern = 'ngh=';
+    const content = currentNode?.textContent;
+    const nghIdx = content?.indexOf(nghPattern) ?? -1;
+    if (nghIdx > -1) {
+      const nghValue = content!.substring(nghIdx + nghPattern.length).trim();
+      // Make sure the value has an expected format.
+      ngDevMode &&
+        assertEqual(
+          nghValue.startsWith('d'),
+          true,
+          'Invalid defer block id found in a comment node.',
+        );
+      nodesByBlockId.set(nghValue, currentNode);
+    }
+  }
+  return nodesByBlockId;
+}
+
+function acceptNode(node: HTMLElement) {
+  return node.textContent?.trimStart().startsWith('ngh=')
+    ? NodeFilter.FILTER_ACCEPT
+    : NodeFilter.FILTER_REJECT;
 }

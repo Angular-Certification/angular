@@ -3,7 +3,7 @@
  * Copyright Google LLC All Rights Reserved.
  *
  * Use of this source code is governed by an MIT-style license that can be
- * found in the LICENSE file at https://angular.io/license
+ * found in the LICENSE file at https://angular.dev/license
  */
 
 import {Component, computed, inject, input, output} from '@angular/core';
@@ -17,7 +17,6 @@ import {PropertyViewHeaderComponent} from './property-view-header.component';
   selector: 'ng-property-view',
   templateUrl: './property-view.component.html',
   styleUrls: ['./property-view.component.scss'],
-  standalone: true,
   imports: [PropertyViewHeaderComponent, PropertyViewBodyComponent],
 })
 export class PropertyViewComponent {

@@ -3,7 +3,7 @@
  * Copyright Google LLC All Rights Reserved.
  *
  * Use of this source code is governed by an MIT-style license that can be
- * found in the LICENSE file at https://angular.io/license
+ * found in the LICENSE file at https://angular.dev/license
  */
 
 /**
@@ -53,22 +53,30 @@ async function main() {
       // write individual result.
       await fs.promises.writeFile(extractResultFile, extractResult);
     });
-  } else if (mode === 'merge') {
+  } else if (mode === 'combine-all') {
     const metadataFiles = files.map((f) => path.resolve(path.join(sourceDir, `${f}.extract.json`)));
-    const mergeResult = await promiseExec(`migration merge ${metadataFiles.join(' ')}`);
+    const mergeResult = await promiseExec(`migration combine-all ${metadataFiles.join(' ')}`);
 
     // write merge result.
-    await fs.promises.writeFile(path.join(sourceDir, 'merged.json'), mergeResult);
+    await fs.promises.writeFile(path.join(sourceDir, 'combined.json'), mergeResult);
+  } else if (mode === 'global-meta') {
+    const combinedUnitFile = path.join(sourceDir, 'combined.json');
+    const globalMeta = await promiseExec(`migration global-meta ${combinedUnitFile}`);
+
+    // write global meta result.
+    await fs.promises.writeFile(path.join(sourceDir, 'global_meta.json'), globalMeta);
   } else if (mode === 'migrate') {
     schedule(files, maxParallel, async (fileName) => {
       const filePath = path.join(sourceDir, fileName);
       // tsconfig should exist from analyze phase.
       const tmpTsconfigName = path.join(sourceDir, `${fileName}.tsconfig.json`);
-      const mergeMetadataFile = path.join(sourceDir, 'merged.json');
+      const mergeMetadataFile = path.join(sourceDir, 'global_meta.json');
 
       // migrate in parallel.
       await promiseExec(
-        `migration migrate ${path.resolve(tmpTsconfigName)} ${mergeMetadataFile} ${path.resolve(filePath)}`,
+        `migration migrate ${path.resolve(tmpTsconfigName)} ${mergeMetadataFile} ${path.resolve(
+          filePath,
+        )}`,
         {env: {...process.env, 'LIMIT_TO_ROOT_NAMES_ONLY': '1'}},
       );
     });

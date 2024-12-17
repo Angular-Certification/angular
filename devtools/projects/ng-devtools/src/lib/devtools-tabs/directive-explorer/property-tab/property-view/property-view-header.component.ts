@@ -3,7 +3,7 @@
  * Copyright Google LLC All Rights Reserved.
  *
  * Use of this source code is governed by an MIT-style license that can be
- * found in the LICENSE file at https://angular.io/license
+ * found in the LICENSE file at https://angular.dev/license
  */
 
 import {Component, input, output} from '@angular/core';
@@ -15,7 +15,6 @@ import {MatToolbar} from '@angular/material/toolbar';
   selector: 'ng-property-view-header',
   templateUrl: './property-view-header.component.html',
   styleUrls: ['./property-view-header.component.scss'],
-  standalone: true,
   imports: [MatToolbar, MatTooltip, MatIcon],
 })
 export class PropertyViewHeaderComponent {

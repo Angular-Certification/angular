@@ -3,7 +3,7 @@
  * Copyright Google LLC All Rights Reserved.
  *
  * Use of this source code is governed by an MIT-style license that can be
- * found in the LICENSE file at https://angular.io/license
+ * found in the LICENSE file at https://angular.dev/license
  */
 import {LifecycleHooksFeature} from './component_ref';
 import {ɵɵdefineComponent, ɵɵdefineDirective, ɵɵdefineNgModule, ɵɵdefinePipe} from './definition';
@@ -13,7 +13,7 @@ import {ɵɵInheritDefinitionFeature} from './features/inherit_definition_featur
 import {ɵɵInputTransformsFeature} from './features/input_transforms_feature';
 import {ɵɵNgOnChangesFeature} from './features/ng_onchanges_feature';
 import {ɵɵProvidersFeature} from './features/providers_feature';
-import {ɵɵStandaloneFeature} from './features/standalone_feature';
+import {ɵɵExternalStylesFeature} from './features/external_styles_feature';
 import {
   ComponentDef,
   ComponentTemplate,
@@ -150,7 +150,14 @@ export {
   ɵɵdeferPrefetchOnHover,
   ɵɵdeferPrefetchOnInteraction,
   ɵɵdeferPrefetchOnViewport,
-  ɵɵdeferEnableTimerScheduling,
+  ɵɵdeferHydrateWhen,
+  ɵɵdeferHydrateNever,
+  ɵɵdeferHydrateOnIdle,
+  ɵɵdeferHydrateOnImmediate,
+  ɵɵdeferHydrateOnTimer,
+  ɵɵdeferHydrateOnHover,
+  ɵɵdeferHydrateOnInteraction,
+  ɵɵdeferHydrateOnViewport,
   ɵɵtext,
   ɵɵtextInterpolate,
   ɵɵtextInterpolate1,
@@ -172,11 +179,13 @@ export {
   ɵɵdeclareLet,
   ɵɵstoreLet,
   ɵɵreadContextLet,
+  ɵɵattachSourceLocations,
 } from './instructions/all';
 export {
+  ɵɵdeferEnableTimerScheduling,
   DEFER_BLOCK_DEPENDENCY_INTERCEPTOR as ɵDEFER_BLOCK_DEPENDENCY_INTERCEPTOR,
   DEFER_BLOCK_CONFIG as ɵDEFER_BLOCK_CONFIG,
-} from '../defer/instructions';
+} from '../defer/rendering';
 export {DeferBlockDependencyInterceptor as ɵDeferBlockDependencyInterceptor} from '../defer/interfaces';
 export {
   ɵɵi18n,
@@ -211,6 +220,7 @@ export {ɵɵresolveBody, ɵɵresolveDocument, ɵɵresolveWindow} from './util/mi
 export {ɵɵtemplateRefExtractor} from './view_engine_compatibility_prebound';
 export {ɵɵgetComponentDepsFactory} from './local_compilation';
 export {ɵsetClassDebugInfo} from './debug/set_debug_info';
+export {ɵɵreplaceMetadata} from './hmr';
 
 export {
   ComponentDebugMetadata,
@@ -245,5 +255,5 @@ export {
   ɵɵProvidersFeature,
   ɵɵsetComponentScope,
   ɵɵsetNgModuleScope,
-  ɵɵStandaloneFeature,
+  ɵɵExternalStylesFeature,
 };

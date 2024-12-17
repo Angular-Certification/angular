@@ -3,7 +3,7 @@
  * Copyright Google LLC All Rights Reserved.
  *
  * Use of this source code is governed by an MIT-style license that can be
- * found in the LICENSE file at https://angular.io/license
+ * found in the LICENSE file at https://angular.dev/license
  */
 
 import ts from 'typescript';
@@ -97,11 +97,14 @@ export class ChangeTracker {
   /**
    * Removes the text of an AST node from a file.
    * @param node Node whose text should be removed.
+   * @param useFullOffsets Whether to remove the node using its full offset (e.g. `getFullStart`
+   * rather than `fullStart`). This has the advantage of removing any comments that may be tied
+   * to the node, but can lead to too much code being deleted.
    */
-  removeNode(node: ts.Node): void {
+  removeNode(node: ts.Node, useFullOffsets = false): void {
     this._trackChange(node.getSourceFile(), {
-      start: node.getStart(),
-      removeLength: node.getWidth(),
+      start: useFullOffsets ? node.getFullStart() : node.getStart(),
+      removeLength: useFullOffsets ? node.getFullWidth() : node.getWidth(),
       text: '',
     });
   }
@@ -138,6 +141,25 @@ export class ChangeTracker {
       exportModuleSpecifier: moduleName,
       unsafeAliasOverride: alias,
     });
+  }
+
+  /**
+   * Removes an import from a file.
+   * @param sourceFile File from which to remove the import.
+   * @param symbolName Original name of the symbol to be removed. Used even if the import is aliased.
+   * @param moduleName Module from which the symbol is imported.
+   */
+  removeImport(sourceFile: ts.SourceFile, symbolName: string, moduleName: string): void {
+    // It's common for paths to be manipulated with Node's `path` utilties which
+    // can yield a path with back slashes. Normalize them since outputting such
+    // paths will also cause TS to escape the forward slashes.
+    moduleName = normalizePath(moduleName);
+
+    if (!this._changes.has(sourceFile)) {
+      this._changes.set(sourceFile, []);
+    }
+
+    this._importManager.removeImport(sourceFile, symbolName, moduleName);
   }
 
   /**
@@ -201,10 +223,14 @@ export class ChangeTracker {
 
   /** Records the pending import changes from the import manager. */
   private _recordImports(): void {
-    const {newImports, updatedImports} = this._importManager.finalize();
+    const {newImports, updatedImports, deletedImports} = this._importManager.finalize();
 
     for (const [original, replacement] of updatedImports) {
       this.replaceNode(original, replacement);
+    }
+
+    for (const node of deletedImports) {
+      this.removeNode(node);
     }
 
     for (const [sourceFile] of this._changes) {

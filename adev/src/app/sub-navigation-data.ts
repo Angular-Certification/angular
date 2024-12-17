@@ -11,6 +11,7 @@ import {NavigationItem} from '@angular/docs';
 // These 2 imports are expected to be red because they are generated a build time
 import FIRST_APP_TUTORIAL_NAV_DATA from '../../src/assets/tutorials/first-app/routes.json';
 import LEARN_ANGULAR_TUTORIAL_NAV_DATA from '../../src/assets/tutorials/learn-angular/routes.json';
+import DEFERRABLE_VIEWS_TUTORIAL_NAV_DATA from '../../src/assets/tutorials/deferrable-views/routes.json';
 
 import {DefaultPage} from './core/enums/pages';
 import {getApiNavigationItems} from './features/references/helpers/manifest.helper';
@@ -45,34 +46,24 @@ const DOCS_SUB_NAVIGATION_DATA: NavigationItem[] = [
             contentPath: 'introduction/essentials/overview',
           },
           {
-            label: 'Composing with Components',
+            label: 'Composition with components',
             path: 'essentials/components',
             contentPath: 'introduction/essentials/components',
           },
           {
-            label: 'Managing Dynamic Data',
-            path: 'essentials/managing-dynamic-data',
-            contentPath: 'introduction/essentials/managing-dynamic-data',
+            label: 'Reactivity with signals',
+            path: 'essentials/signals',
+            contentPath: 'introduction/essentials/signals',
           },
           {
-            label: 'Rendering Dynamic Templates',
-            path: 'essentials/rendering-dynamic-templates',
-            contentPath: 'introduction/essentials/rendering-dynamic-templates',
+            label: 'Dynamic interfaces with templates',
+            path: 'essentials/templates',
+            contentPath: 'introduction/essentials/templates',
           },
           {
-            label: 'Conditionals and Loops',
-            path: 'essentials/conditionals-and-loops',
-            contentPath: 'introduction/essentials/conditionals-and-loops',
-          },
-          {
-            label: 'Handling User Interaction',
-            path: 'essentials/handling-user-interaction',
-            contentPath: 'introduction/essentials/handling-user-interaction',
-          },
-          {
-            label: 'Sharing Logic',
-            path: 'essentials/sharing-logic',
-            contentPath: 'introduction/essentials/sharing-logic',
+            label: 'Modular design with dependency injection',
+            path: 'essentials/dependency-injection',
+            contentPath: 'introduction/essentials/dependency-injection',
           },
           {
             label: 'Next Steps',
@@ -91,17 +82,32 @@ const DOCS_SUB_NAVIGATION_DATA: NavigationItem[] = [
     label: 'In-depth Guides',
     children: [
       {
+        label: 'Signals',
+        children: [
+          {
+            label: 'Overview',
+            path: 'guide/signals',
+            contentPath: 'guide/signals/overview',
+          },
+          {
+            label: 'Dependent state with linkedSignal',
+            path: 'guide/signals/linked-signal',
+            contentPath: 'guide/signals/linked-signal',
+          },
+          {
+            label: 'Async reactivity with resources',
+            path: 'guide/signals/resource',
+            contentPath: 'guide/signals/resource',
+          },
+        ],
+      },
+      {
         label: 'Components',
         children: [
           {
             label: 'Anatomy of components',
             path: 'guide/components',
             contentPath: 'guide/components/anatomy-of-components',
-          },
-          {
-            label: 'Importing and using components',
-            path: 'guide/components/importing',
-            contentPath: 'guide/components/importing',
           },
           {
             label: 'Selectors',
@@ -122,11 +128,6 @@ const DOCS_SUB_NAVIGATION_DATA: NavigationItem[] = [
             label: 'Custom events with outputs',
             path: 'guide/components/outputs',
             contentPath: 'guide/components/outputs',
-          },
-          {
-            label: 'output() function',
-            path: 'guide/components/output-fn',
-            contentPath: 'guide/components/output-function',
           },
           {
             label: 'Content projection with ng-content',
@@ -176,7 +177,7 @@ const DOCS_SUB_NAVIGATION_DATA: NavigationItem[] = [
         ],
       },
       {
-        label: 'Template Syntax',
+        label: 'Templates',
         children: [
           {
             label: 'Overview',
@@ -184,44 +185,14 @@ const DOCS_SUB_NAVIGATION_DATA: NavigationItem[] = [
             contentPath: 'guide/templates/overview',
           },
           {
-            label: 'Text interpolation',
-            path: 'guide/templates/interpolation',
-            contentPath: 'guide/templates/interpolation',
-          },
-          {
-            label: 'Template statements',
-            path: 'guide/templates/template-statements',
-            contentPath: 'guide/templates/template-statements',
-          },
-          {
-            label: 'Understanding binding',
+            label: 'Binding dynamic text, properties and attributes',
             path: 'guide/templates/binding',
             contentPath: 'guide/templates/binding',
           },
           {
-            label: 'Property binding',
-            path: 'guide/templates/property-binding',
-            contentPath: 'guide/templates/property-binding',
-          },
-          {
-            label: 'Property binding best practices',
-            path: 'guide/templates/property-binding-best-practices',
-            contentPath: 'guide/templates/property-binding-best-practices',
-          },
-          {
-            label: 'Attribute binding',
-            path: 'guide/templates/attribute-binding',
-            contentPath: 'guide/templates/attribute-binding',
-          },
-          {
-            label: 'Class and style binding',
-            path: 'guide/templates/class-binding',
-            contentPath: 'guide/templates/class-binding',
-          },
-          {
-            label: 'Event binding',
-            path: 'guide/templates/event-binding',
-            contentPath: 'guide/templates/event-binding',
+            label: 'Adding event listeners',
+            path: 'guide/templates/event-listeners',
+            contentPath: 'guide/templates/event-listeners',
           },
           {
             label: 'Two-way binding',
@@ -234,54 +205,44 @@ const DOCS_SUB_NAVIGATION_DATA: NavigationItem[] = [
             contentPath: 'guide/templates/control-flow',
           },
           {
-            label: 'Local template variables with @let',
-            path: 'guide/templates/let-template-variables',
-            contentPath: 'guide/templates/let-template-variables',
-          },
-          {
             label: 'Pipes',
-            children: [
-              {
-                label: 'Overview',
-                path: 'guide/pipes',
-                contentPath: 'guide/pipes/overview',
-              },
-              {
-                label: 'Using a pipe in a template',
-                path: 'guide/pipes/template',
-                contentPath: 'guide/pipes/template',
-              },
-              {
-                label: 'Custom pipes',
-                path: 'guide/pipes/transform-data',
-                contentPath: 'guide/pipes/transform-data',
-              },
-              {
-                label: 'Pipe precedence in expressions',
-                path: 'guide/pipes/precedence',
-                contentPath: 'guide/pipes/precedence',
-              },
-              {
-                label: 'Change detection with pipes',
-                path: 'guide/pipes/change-detection',
-                contentPath: 'guide/pipes/change-detection',
-              },
-              {
-                label: 'Unwrapping data from an observable',
-                path: 'guide/pipes/unwrapping-data-observables',
-                contentPath: 'guide/pipes/unwrapping-data-observables',
-              },
-            ],
+            path: 'guide/templates/pipes',
+            contentPath: 'guide/templates/pipes',
           },
           {
-            label: 'Template reference variables',
-            path: 'guide/templates/reference-variables',
-            contentPath: 'guide/templates/reference-variables',
+            label: 'Slotting child content with ng-content',
+            path: 'guide/templates/ng-content',
+            contentPath: 'guide/templates/ng-content',
           },
           {
-            label: 'SVG as templates',
-            path: 'guide/templates/svg-in-templates',
-            contentPath: 'guide/templates/svg-in-templates',
+            label: 'Create template fragments with ng-template',
+            path: 'guide/templates/ng-template',
+            contentPath: 'guide/templates/ng-template',
+          },
+          {
+            label: 'Grouping elements with ng-container',
+            path: 'guide/templates/ng-container',
+            contentPath: 'guide/templates/ng-container',
+          },
+          {
+            label: 'Variables in templates',
+            path: 'guide/templates/variables',
+            contentPath: 'guide/templates/variables',
+          },
+          {
+            label: 'Deferred loading with @defer',
+            path: 'guide/templates/defer',
+            contentPath: 'guide/templates/defer',
+          },
+          {
+            label: 'Expression syntax',
+            path: 'guide/templates/expression-syntax',
+            contentPath: 'guide/templates/expression-syntax',
+          },
+          {
+            label: 'Whitespace in templates',
+            path: 'guide/templates/whitespace',
+            contentPath: 'guide/templates/whitespace',
           },
         ],
       },
@@ -307,6 +268,11 @@ const DOCS_SUB_NAVIGATION_DATA: NavigationItem[] = [
             label: 'Directive composition API',
             path: 'guide/directives/directive-composition-api',
             contentPath: 'guide/directives/directive-composition-api',
+          },
+          {
+            label: 'Optimizing images with NgOptimizedImage',
+            path: 'guide/image-optimization',
+            contentPath: 'guide/image-optimization',
           },
         ],
       },
@@ -352,36 +318,6 @@ const DOCS_SUB_NAVIGATION_DATA: NavigationItem[] = [
             label: 'DI in action',
             path: 'guide/di/di-in-action',
             contentPath: 'guide/di/di-in-action',
-          },
-        ],
-      },
-      {
-        label: 'Signals',
-        children: [
-          {
-            label: 'Overview',
-            path: 'guide/signals',
-            contentPath: 'guide/signals/overview',
-          },
-          {
-            label: 'RxJS Interop',
-            path: 'guide/signals/rxjs-interop',
-            contentPath: 'guide/signals/rxjs-interop',
-          },
-          {
-            label: 'Inputs as signals',
-            path: 'guide/signals/inputs',
-            contentPath: 'guide/signals/inputs',
-          },
-          {
-            label: 'Model inputs',
-            path: 'guide/signals/model',
-            contentPath: 'guide/signals/model',
-          },
-          {
-            label: 'Queries as signals',
-            path: 'guide/signals/queries',
-            contentPath: 'guide/signals/queries',
           },
         ],
       },
@@ -481,7 +417,7 @@ const DOCS_SUB_NAVIGATION_DATA: NavigationItem[] = [
         ],
       },
       {
-        label: 'Performance',
+        label: 'Server-side & hybrid-rendering',
         children: [
           {
             label: 'Overview',
@@ -489,17 +425,7 @@ const DOCS_SUB_NAVIGATION_DATA: NavigationItem[] = [
             contentPath: 'guide/performance/overview',
           },
           {
-            label: 'Deferrable views',
-            path: 'guide/defer',
-            contentPath: 'guide/defer',
-          },
-          {
-            label: 'Image Optimization',
-            path: 'guide/image-optimization',
-            contentPath: 'guide/image-optimization',
-          },
-          {
-            label: 'Server-side Rendering',
+            label: 'Server-side rendering',
             path: 'guide/ssr',
             contentPath: 'guide/ssr',
           },
@@ -509,9 +435,19 @@ const DOCS_SUB_NAVIGATION_DATA: NavigationItem[] = [
             contentPath: 'guide/prerendering',
           },
           {
+            label: 'Hybrid rendering with server routing',
+            path: 'guide/hybrid-rendering',
+            contentPath: 'guide/hybrid-rendering',
+          },
+          {
             label: 'Hydration',
             path: 'guide/hydration',
             contentPath: 'guide/hydration',
+          },
+          {
+            label: 'Incremental Hydration',
+            path: 'guide/incremental-hydration',
+            contentPath: 'guide/incremental-hydration',
           },
         ],
       },
@@ -622,36 +558,6 @@ const DOCS_SUB_NAVIGATION_DATA: NavigationItem[] = [
             label: 'Example Angular application',
             path: 'guide/i18n/example',
             contentPath: 'guide/i18n/example',
-          },
-        ],
-      },
-      {
-        label: 'Animations',
-        children: [
-          {
-            label: 'Overview',
-            path: 'guide/animations',
-            contentPath: 'guide/animations/overview',
-          },
-          {
-            label: 'Transition and Triggers',
-            path: 'guide/animations/transition-and-triggers',
-            contentPath: 'guide/animations/transition-and-triggers',
-          },
-          {
-            label: 'Complex Sequences',
-            path: 'guide/animations/complex-sequences',
-            contentPath: 'guide/animations/complex-sequences',
-          },
-          {
-            label: 'Reusable Animations',
-            path: 'guide/animations/reusable-animations',
-            contentPath: 'guide/animations/reusable-animations',
-          },
-          {
-            label: 'Route transition animations',
-            path: 'guide/animations/route-animations',
-            contentPath: 'guide/animations/route-animations',
           },
         ],
       },
@@ -837,6 +743,56 @@ const DOCS_SUB_NAVIGATION_DATA: NavigationItem[] = [
     label: 'Extended Ecosystem',
     children: [
       {
+        label: 'NgModules',
+        path: 'guide/ngmodules/overview',
+        contentPath: 'guide/ngmodules/overview',
+      },
+      {
+        label: 'Animations',
+        children: [
+          {
+            label: 'Overview',
+            path: 'guide/animations',
+            contentPath: 'guide/animations/overview',
+          },
+          {
+            label: 'Transition and Triggers',
+            path: 'guide/animations/transition-and-triggers',
+            contentPath: 'guide/animations/transition-and-triggers',
+          },
+          {
+            label: 'Complex Sequences',
+            path: 'guide/animations/complex-sequences',
+            contentPath: 'guide/animations/complex-sequences',
+          },
+          {
+            label: 'Reusable Animations',
+            path: 'guide/animations/reusable-animations',
+            contentPath: 'guide/animations/reusable-animations',
+          },
+          {
+            label: 'Route transition animations',
+            path: 'guide/animations/route-animations',
+            contentPath: 'guide/animations/route-animations',
+          },
+        ],
+      },
+      {
+        label: 'Using RxJS with Angular',
+        children: [
+          {
+            label: 'Signals interop',
+            path: 'ecosystem/rxjs-interop',
+            contentPath: 'ecosystem/rxjs-interop/signals-interop',
+          },
+          {
+            label: 'Component output interop',
+            path: 'ecosystem/rxjs-interop/output-interop',
+            contentPath: 'ecosystem/rxjs-interop/output-interop',
+          },
+        ],
+      },
+      {
         label: 'Service Workers & PWAs',
         children: [
           {
@@ -912,6 +868,7 @@ const DOCS_SUB_NAVIGATION_DATA: NavigationItem[] = [
 export const TUTORIALS_SUB_NAVIGATION_DATA: NavigationItem[] = [
   FIRST_APP_TUTORIAL_NAV_DATA,
   LEARN_ANGULAR_TUTORIAL_NAV_DATA,
+  DEFERRABLE_VIEWS_TUTORIAL_NAV_DATA,
   {
     path: DefaultPage.TUTORIALS,
     contentPath: 'tutorials/home',
@@ -988,7 +945,7 @@ const REFERENCE_SUB_NAVIGATION_DATA: NavigationItem[] = [
             path: 'cli/cache',
           },
           {
-            label: 'clear',
+            label: 'clean',
             path: 'cli/cache/clean',
           },
           {
@@ -1259,7 +1216,7 @@ const REFERENCE_SUB_NAVIGATION_DATA: NavigationItem[] = [
         contentPath: 'reference/errors/NG0507',
       },
       {
-        label: 'NG0602: HTML content was altered after server-side rendering',
+        label: 'NG0602: Disallowed function call inside reactive context',
         path: 'errors/NG0602',
         contentPath: 'reference/errors/NG0602',
       },
@@ -1408,6 +1365,11 @@ const REFERENCE_SUB_NAVIGATION_DATA: NavigationItem[] = [
         path: 'extended-diagnostics/NG8111',
         contentPath: 'reference/extended-diagnostics/NG8111',
       },
+      {
+        label: 'NG8113: Unused Standalone Imports',
+        path: 'extended-diagnostics/NG8113',
+        contentPath: 'reference/extended-diagnostics/NG8113',
+      },
     ],
   },
   {
@@ -1463,94 +1425,34 @@ const REFERENCE_SUB_NAVIGATION_DATA: NavigationItem[] = [
         contentPath: 'reference/migrations/standalone',
       },
       {
-        label: 'ModuleWithProviders',
-        path: 'reference/migrations/module-with-providers',
-        contentPath: 'reference/migrations/module-with-providers',
-      },
-      {
-        label: 'Typed Forms',
-        path: 'reference/migrations/typed-forms',
-        contentPath: 'reference/migrations/typed-forms',
-      },
-      {
         label: 'Control Flow Syntax',
         path: 'reference/migrations/control-flow',
         contentPath: 'reference/migrations/control-flow',
       },
-    ],
-  },
-  {
-    label: 'Concepts',
-    children: [
       {
-        label: 'Overview',
-        path: 'reference/concepts',
-        contentPath: 'reference/concepts/overview',
+        label: 'inject() Function',
+        path: 'reference/migrations/inject-function',
+        contentPath: 'reference/migrations/inject-function',
       },
       {
-        label: 'NgModule',
-        children: [
-          {
-            label: 'Overview',
-            path: 'guide/ngmodules',
-            contentPath: 'guide/ngmodules/overview',
-          },
-          {
-            label: 'JS Modules vs NgModules',
-            path: 'guide/ngmodules/vs-jsmodule',
-            contentPath: 'guide/ngmodules/vs-jsmodule',
-          },
-          {
-            label: 'Launching your app with a root module',
-            path: 'guide/ngmodules/bootstrapping',
-            contentPath: 'guide/ngmodules/bootstrapping',
-          },
-          {
-            label: 'Sharing NgModules',
-            path: 'guide/ngmodules/sharing',
-            contentPath: 'guide/ngmodules/sharing',
-          },
-          {
-            label: 'Frequently used NgModules',
-            path: 'guide/ngmodules/frequent',
-            contentPath: 'guide/ngmodules/frequent',
-          },
-          {
-            label: 'Feature modules',
-            path: 'guide/ngmodules/feature-modules',
-            contentPath: 'guide/ngmodules/feature-modules',
-          },
-          {
-            label: 'Types of feature modules',
-            path: 'guide/ngmodules/module-types',
-            contentPath: 'guide/ngmodules/module-types',
-          },
-          {
-            label: 'Providing dependencies',
-            path: 'guide/ngmodules/providers',
-            contentPath: 'guide/ngmodules/providers',
-          },
-          {
-            label: 'Singleton services',
-            path: 'guide/ngmodules/singleton-services',
-            contentPath: 'guide/ngmodules/singleton-services',
-          },
-          {
-            label: 'Lazy-loading feature modules',
-            path: 'guide/ngmodules/lazy-loading',
-            contentPath: 'guide/ngmodules/lazy-loading',
-          },
-          {
-            label: 'NgModule API',
-            path: 'guide/ngmodules/api',
-            contentPath: 'guide/ngmodules/api',
-          },
-          {
-            label: 'NgModule FAQs',
-            path: 'guide/ngmodules/faq',
-            contentPath: 'guide/ngmodules/faq',
-          },
-        ],
+        label: 'Lazy-loaded routes',
+        path: 'reference/migrations/route-lazy-loading',
+        contentPath: 'reference/migrations/route-lazy-loading',
+      },
+      {
+        label: 'Signal inputs',
+        path: 'reference/migrations/signal-inputs',
+        contentPath: 'reference/migrations/signal-inputs',
+      },
+      {
+        label: 'Outputs',
+        path: 'reference/migrations/outputs',
+        contentPath: 'reference/migrations/outputs',
+      },
+      {
+        label: 'Signal queries',
+        path: 'reference/migrations/signal-queries',
+        contentPath: 'reference/migrations/signal-queries',
       },
     ],
   },

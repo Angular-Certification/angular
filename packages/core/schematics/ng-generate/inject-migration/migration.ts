@@ -3,39 +3,33 @@
  * Copyright Google LLC All Rights Reserved.
  *
  * Use of this source code is governed by an MIT-style license that can be
- * found in the LICENSE file at https://angular.io/license
+ * found in the LICENSE file at https://angular.dev/license
  */
 
 import ts from 'typescript';
 import {PendingChange, ChangeTracker} from '../../utils/change_tracker';
 import {
-  detectClassesUsingDI,
-  getNodeIndentation,
+  analyzeFile,
   getSuperParameters,
   getConstructorUnusedParameters,
   hasGenerics,
   isNullableType,
   parameterDeclaresProperty,
+  DI_PARAM_SYMBOLS,
+  MigrationOptions,
+  parameterReferencesOtherParameters,
 } from './analysis';
 import {getAngularDecorators} from '../../utils/ng_decorators';
+import {getImportOfIdentifier} from '../../utils/typescript/imports';
+import {closestNode} from '../../utils/typescript/nodes';
+import {findUninitializedPropertiesToCombine, shouldCombineInInitializationOrder} from './internal';
+import {getLeadingLineWhitespaceOfNode} from '../../utils/tsurge/helpers/ast/leading_space';
 
 /**
  * Placeholder used to represent expressions inside the AST.
  * Includes Unicode characters to reduce the chance of collisions.
  */
 const PLACEHOLDER = 'ɵɵngGeneratePlaceholderɵɵ';
-
-/** Options that can be used to configure the migration. */
-export interface MigrationOptions {
-  /** Whether to generate code that keeps injectors backwards compatible. */
-  backwardsCompatibleConstructors: boolean;
-
-  /** Whether to migrate abstract classes. */
-  migrateAbstractClasses: boolean;
-
-  /** Whether to make the return type of `@Optinal()` parameters to be non-nullable. */
-  nonNullableOptional: boolean;
-}
 
 /**
  * Migrates all of the classes in a `SourceFile` away from constructor injection.
@@ -49,19 +43,58 @@ export function migrateFile(sourceFile: ts.SourceFile, options: MigrationOptions
   // 2. All the necessary information for this migration is local so using a file-specific type
   //    checker should speed up the lookups.
   const localTypeChecker = getLocalTypeChecker(sourceFile);
+  const analysis = analyzeFile(sourceFile, localTypeChecker, options);
+
+  if (analysis === null || analysis.classes.length === 0) {
+    return [];
+  }
+
   const printer = ts.createPrinter();
   const tracker = new ChangeTracker(printer);
 
-  detectClassesUsingDI(sourceFile, localTypeChecker).forEach((result) => {
+  analysis.classes.forEach(({node, constructor, superCall}) => {
+    const memberIndentation = getLeadingLineWhitespaceOfNode(node.members[0]);
+    const prependToClass: string[] = [];
+    const afterInjectCalls: string[] = [];
+    const removedStatements = new Set<ts.Statement>();
+    const removedMembers = new Set<ts.ClassElement>();
+
+    if (options._internalCombineMemberInitializers) {
+      applyInternalOnlyChanges(
+        node,
+        constructor,
+        localTypeChecker,
+        tracker,
+        printer,
+        removedStatements,
+        removedMembers,
+        prependToClass,
+        afterInjectCalls,
+        memberIndentation,
+      );
+    }
+
     migrateClass(
-      result.node,
-      result.constructor,
-      result.superCall,
+      node,
+      constructor,
+      superCall,
       options,
+      memberIndentation,
+      prependToClass,
+      afterInjectCalls,
+      removedStatements,
+      removedMembers,
       localTypeChecker,
       printer,
       tracker,
     );
+  });
+
+  DI_PARAM_SYMBOLS.forEach((name) => {
+    // Both zero and undefined are fine here.
+    if (!analysis.nonDecoratorReferences[name]) {
+      tracker.removeImport(sourceFile, name, '@angular/core');
+    }
   });
 
   return tracker.recordChanges().get(sourceFile) || [];
@@ -73,6 +106,11 @@ export function migrateFile(sourceFile: ts.SourceFile, options: MigrationOptions
  * @param constructor Reference to the class' constructor node.
  * @param superCall Reference to the constructor's `super()` call, if any.
  * @param options Options used to configure the migration.
+ * @param memberIndentation Indentation string of the members of the class.
+ * @param prependToClass Text that should be prepended to the class.
+ * @param afterInjectCalls Text that will be inserted after the newly-added `inject` calls.
+ * @param removedStatements Statements that have been removed from the constructor already.
+ * @param removedMembers Class members that have been removed by the migration.
  * @param localTypeChecker Type checker set up for the specific file.
  * @param printer Printer used to output AST nodes as strings.
  * @param tracker Object keeping track of the changes made to the file.
@@ -82,34 +120,41 @@ function migrateClass(
   constructor: ts.ConstructorDeclaration,
   superCall: ts.CallExpression | null,
   options: MigrationOptions,
+  memberIndentation: string,
+  prependToClass: string[],
+  afterInjectCalls: string[],
+  removedStatements: Set<ts.Statement>,
+  removedMembers: Set<ts.ClassElement>,
   localTypeChecker: ts.TypeChecker,
   printer: ts.Printer,
   tracker: ChangeTracker,
 ): void {
-  const isAbstract = !!node.modifiers?.some((m) => m.kind === ts.SyntaxKind.AbstractKeyword);
-
-  // Don't migrate abstract classes by default, because
-  // their parameters aren't guaranteed to be injectable.
-  if (isAbstract && !options.migrateAbstractClasses) {
-    return;
-  }
-
   const sourceFile = node.getSourceFile();
-  const unusedParameters = getConstructorUnusedParameters(constructor, localTypeChecker);
+  const unusedParameters = getConstructorUnusedParameters(
+    constructor,
+    localTypeChecker,
+    removedStatements,
+  );
   const superParameters = superCall
     ? getSuperParameters(constructor, superCall, localTypeChecker)
     : null;
-  const memberIndentation = getNodeIndentation(node.members[0]);
-  const innerReference = superCall || constructor.body?.statements[0] || constructor;
-  const innerIndentation = getNodeIndentation(innerReference);
-  const propsToAdd: string[] = [];
+  const removedStatementCount = removedStatements.size;
+  const firstConstructorStatement = constructor.body?.statements.find(
+    (statement) => !removedStatements.has(statement),
+  );
+  const innerReference = superCall || firstConstructorStatement || constructor;
+  const innerIndentation = getLeadingLineWhitespaceOfNode(innerReference);
   const prependToConstructor: string[] = [];
   const afterSuper: string[] = [];
-  const removedMembers = new Set<ts.ClassElement>();
 
   for (const param of constructor.parameters) {
     const usedInSuper = superParameters !== null && superParameters.has(param);
     const usedInConstructor = !unusedParameters.has(param);
+    const usesOtherParams = parameterReferencesOtherParameters(
+      param,
+      constructor.parameters,
+      localTypeChecker,
+    );
 
     migrateParameter(
       param,
@@ -120,10 +165,11 @@ function migrateClass(
       superCall,
       usedInSuper,
       usedInConstructor,
+      usesOtherParams,
       memberIndentation,
       innerIndentation,
       prependToConstructor,
-      propsToAdd,
+      prependToClass,
       afterSuper,
     );
   }
@@ -133,33 +179,60 @@ function migrateClass(
   for (const member of node.members) {
     if (ts.isConstructorDeclaration(member) && member !== constructor) {
       removedMembers.add(member);
-      tracker.replaceText(sourceFile, member.getFullStart(), member.getFullWidth(), '');
+      tracker.removeNode(member, true);
     }
   }
 
   if (
-    !options.backwardsCompatibleConstructors &&
-    (!constructor.body || constructor.body.statements.length === 0)
+    canRemoveConstructor(
+      options,
+      constructor,
+      removedStatementCount,
+      prependToConstructor,
+      superCall,
+    )
   ) {
     // Drop the constructor if it was empty.
     removedMembers.add(constructor);
-    tracker.replaceText(sourceFile, constructor.getFullStart(), constructor.getFullWidth(), '');
+    tracker.removeNode(constructor, true);
   } else {
     // If the constructor contains any statements, only remove the parameters.
     // We always do this no matter what is passed into `backwardsCompatibleConstructors`.
     stripConstructorParameters(constructor, tracker);
 
     if (prependToConstructor.length > 0) {
-      tracker.insertText(
-        sourceFile,
-        innerReference.getFullStart(),
-        `\n${prependToConstructor.join('\n')}\n`,
-      );
+      if (
+        firstConstructorStatement ||
+        (innerReference !== constructor &&
+          innerReference.getStart() >= constructor.getStart() &&
+          innerReference.getEnd() <= constructor.getEnd())
+      ) {
+        tracker.insertText(
+          sourceFile,
+          (firstConstructorStatement || innerReference).getFullStart(),
+          `\n${prependToConstructor.join('\n')}\n`,
+        );
+      } else {
+        tracker.insertText(
+          sourceFile,
+          constructor.body!.getStart() + 1,
+          `\n${prependToConstructor.map((p) => innerIndentation + p).join('\n')}\n${innerIndentation}`,
+        );
+      }
     }
   }
 
   if (afterSuper.length > 0 && superCall !== null) {
-    tracker.insertText(sourceFile, superCall.getEnd() + 1, `\n${afterSuper.join('\n')}\n`);
+    // Note that if we can, we should insert before the next statement after the `super` call,
+    // rather than after the end of it. Otherwise the string buffering implementation may drop
+    // the text if the statement after the `super` call is being deleted. This appears to be because
+    // the full start of the next statement appears to always be the end of the `super` call plus 1.
+    const nextStatement = getNextPreservedStatement(superCall, removedStatements);
+    tracker.insertText(
+      sourceFile,
+      nextStatement ? nextStatement.getFullStart() : constructor.getEnd() - 1,
+      `\n${afterSuper.join('\n')}\n` + (nextStatement ? '' : memberIndentation),
+    );
   }
 
   // Need to resolve this once all constructor signatures have been removed.
@@ -174,21 +247,33 @@ function migrateClass(
 
     // The new signature always has to be right before the constructor implementation.
     if (memberReference === constructor) {
-      propsToAdd.push(extraSignature);
+      prependToClass.push(extraSignature);
     } else {
       tracker.insertText(sourceFile, constructor.getFullStart(), '\n' + extraSignature);
     }
   }
 
-  if (propsToAdd.length > 0) {
+  // Push the block of code that should appear after the `inject`
+  // calls now once all the members have been generated.
+  prependToClass.push(...afterInjectCalls);
+
+  if (prependToClass.length > 0) {
     if (removedMembers.size === node.members.length) {
-      tracker.insertText(sourceFile, constructor.getEnd() + 1, `${propsToAdd.join('\n')}\n`);
+      tracker.insertText(
+        sourceFile,
+        // If all members were deleted, insert after the last one.
+        // This allows us to preserve the indentation.
+        node.members.length > 0
+          ? node.members[node.members.length - 1].getEnd() + 1
+          : node.getEnd() - 1,
+        `${prependToClass.join('\n')}\n`,
+      );
     } else {
       // Insert the new properties after the first member that hasn't been deleted.
       tracker.insertText(
         sourceFile,
         memberReference.getFullStart(),
-        `\n${propsToAdd.join('\n')}\n`,
+        `\n${prependToClass.join('\n')}\n`,
       );
     }
   }
@@ -219,6 +304,7 @@ function migrateParameter(
   superCall: ts.CallExpression | null,
   usedInSuper: boolean,
   usedInConstructor: boolean,
+  usesOtherParams: boolean,
   memberIndentation: string,
   innerIndentation: string,
   prependToConstructor: string[],
@@ -241,17 +327,23 @@ function migrateParameter(
 
   // If the parameter declares a property, we need to declare it (e.g. `private foo: Foo`).
   if (declaresProp) {
+    // We can't initialize the property if it's referenced within a `super` call or  it references
+    // other parameters. See the logic further below for the initialization.
+    const canInitialize = !usedInSuper && !usesOtherParams;
     const prop = ts.factory.createPropertyDeclaration(
-      node.modifiers?.filter((modifier) => {
-        // Strip out the DI decorators, as well as `public` which is redundant.
-        return !ts.isDecorator(modifier) && modifier.kind !== ts.SyntaxKind.PublicKeyword;
-      }),
+      cloneModifiers(
+        node.modifiers?.filter((modifier) => {
+          // Strip out the DI decorators, as well as `public` which is redundant.
+          return !ts.isDecorator(modifier) && modifier.kind !== ts.SyntaxKind.PublicKeyword;
+        }),
+      ),
       name,
-      undefined,
-      // We can't initialize the property if it's referenced within a `super` call.
-      // See the logic further below for the initialization.
-      usedInSuper ? node.type : undefined,
-      usedInSuper ? undefined : ts.factory.createIdentifier(PLACEHOLDER),
+      // Don't add the question token to private properties since it won't affect interface implementation.
+      node.modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.PrivateKeyword)
+        ? undefined
+        : node.questionToken,
+      canInitialize ? undefined : node.type,
+      canInitialize ? ts.factory.createIdentifier(PLACEHOLDER) : undefined,
     );
 
     propsToAdd.push(
@@ -287,6 +379,14 @@ function migrateParameter(
       // don't need to declare any new properties.
       prependToConstructor.push(`${innerIndentation}const ${name} = ${replacementCall};`);
     }
+  } else if (usesOtherParams && declaresProp) {
+    const toAdd = `${innerIndentation}this.${name} = ${replacementCall};`;
+
+    if (superCall === null) {
+      prependToConstructor.push(toAdd);
+    } else {
+      afterSuper.push(toAdd);
+    }
   }
 }
 
@@ -309,9 +409,22 @@ function createInjectReplacementCall(
   const sourceFile = param.getSourceFile();
   const decorators = getAngularDecorators(localTypeChecker, ts.getDecorators(param) || []);
   const literalProps: ts.ObjectLiteralElementLike[] = [];
-  let injectedType = param.type?.getText() || '';
-  let typeArguments = param.type && hasGenerics(param.type) ? [param.type] : undefined;
+  const type = param.type;
+  let injectedType = '';
+  let typeArguments = type && hasGenerics(type) ? [type] : undefined;
   let hasOptionalDecorator = false;
+
+  if (type) {
+    // Remove the type arguments from generic type references, because
+    // they'll be specified as type arguments to `inject()`.
+    if (ts.isTypeReferenceNode(type) && type.typeArguments && type.typeArguments.length > 0) {
+      injectedType = type.typeName.getText();
+    } else if (ts.isUnionTypeNode(type)) {
+      injectedType = (type.types.find((t) => !ts.isLiteralTypeNode(t)) || type.types[0]).getText();
+    } else {
+      injectedType = type.getText();
+    }
+  }
 
   for (const decorator of decorators) {
     if (decorator.moduleName !== moduleName) {
@@ -323,15 +436,10 @@ function createInjectReplacementCall(
     switch (decorator.name) {
       case 'Inject':
         if (firstArg) {
-          injectedType = firstArg.getText();
-
-          // `inject` no longer officially supports string injection so we need
-          // to cast to any. We maintain the type by passing it as a generic.
-          if (ts.isStringLiteralLike(firstArg)) {
-            typeArguments = [
-              param.type || ts.factory.createKeywordTypeNode(ts.SyntaxKind.AnyKeyword),
-            ];
-            injectedType += ' as any';
+          const injectResult = migrateInjectDecorator(firstArg, type, localTypeChecker);
+          injectedType = injectResult.injectedType;
+          if (injectResult.typeArguments) {
+            typeArguments = injectResult.typeArguments;
           }
         }
         break;
@@ -387,7 +495,74 @@ function createInjectReplacementCall(
     }
   }
 
+  // If the parameter is initialized, add the initializer as a fallback.
+  if (param.initializer) {
+    expression = ts.factory.createBinaryExpression(
+      expression,
+      ts.SyntaxKind.QuestionQuestionToken,
+      param.initializer,
+    );
+  }
+
   return replaceNodePlaceholder(param.getSourceFile(), expression, injectedType, printer);
+}
+
+/**
+ * Migrates a parameter based on its `@Inject()` decorator.
+ * @param firstArg First argument to `@Inject()`.
+ * @param type Type of the parameter.
+ * @param localTypeChecker Type checker set up for the specific file.
+ */
+function migrateInjectDecorator(
+  firstArg: ts.Expression,
+  type: ts.TypeNode | undefined,
+  localTypeChecker: ts.TypeChecker,
+) {
+  let injectedType = firstArg.getText();
+  let typeArguments: ts.TypeNode[] | null = null;
+
+  // `inject` no longer officially supports string injection so we need
+  // to cast to any. We maintain the type by passing it as a generic.
+  if (ts.isStringLiteralLike(firstArg)) {
+    typeArguments = [type || ts.factory.createKeywordTypeNode(ts.SyntaxKind.AnyKeyword)];
+    injectedType += ' as any';
+  } else if (
+    ts.isCallExpression(firstArg) &&
+    ts.isIdentifier(firstArg.expression) &&
+    firstArg.arguments.length === 1
+  ) {
+    const callImport = getImportOfIdentifier(localTypeChecker, firstArg.expression);
+    const arrowFn = firstArg.arguments[0];
+
+    // If the first parameter is a `forwardRef`, unwrap it for a more
+    // accurate type and because it's no longer necessary.
+    if (
+      callImport !== null &&
+      callImport.name === 'forwardRef' &&
+      callImport.importModule === '@angular/core' &&
+      ts.isArrowFunction(arrowFn)
+    ) {
+      if (ts.isBlock(arrowFn.body)) {
+        const returnStatement = arrowFn.body.statements.find((stmt) => ts.isReturnStatement(stmt));
+
+        if (returnStatement && returnStatement.expression) {
+          injectedType = returnStatement.expression.getText();
+        }
+      } else {
+        injectedType = arrowFn.body.getText();
+      }
+    }
+  } else if (
+    type &&
+    (ts.isTypeReferenceNode(type) ||
+      ts.isTypeLiteralNode(type) ||
+      ts.isTupleTypeNode(type) ||
+      (ts.isUnionTypeNode(type) && type.types.some(ts.isTypeReferenceNode)))
+  ) {
+    typeArguments = [type];
+  }
+
+  return {injectedType, typeArguments};
 }
 
 /**
@@ -407,37 +582,25 @@ function stripConstructorParameters(node: ts.ConstructorDeclaration, tracker: Ch
   const constructorText = node.getText();
   const lastParamText = node.parameters[node.parameters.length - 1].getText();
   const lastParamStart = constructorText.indexOf(lastParamText);
-  const whitespacePattern = /\s/;
-  let trailingCharacters = 0;
 
-  if (lastParamStart > -1) {
-    let lastParamEnd = lastParamStart + lastParamText.length;
-    let closeParenIndex = -1;
-
-    for (let i = lastParamEnd; i < constructorText.length; i++) {
-      const char = constructorText[i];
-
-      if (char === ')') {
-        closeParenIndex = i;
-        break;
-      } else if (!whitespacePattern.test(char)) {
-        // The end of the last parameter won't include
-        // any trailing commas which we need to account for.
-        lastParamEnd = i + 1;
-      }
-    }
-
-    if (closeParenIndex > -1) {
-      trailingCharacters = closeParenIndex - lastParamEnd;
-    }
+  // This shouldn't happen, but bail out just in case so we don't mangle the code.
+  if (lastParamStart === -1) {
+    return;
   }
 
-  tracker.replaceText(
-    node.getSourceFile(),
-    node.parameters.pos,
-    node.parameters.end - node.parameters.pos + trailingCharacters,
-    '',
-  );
+  for (let i = lastParamStart + lastParamText.length; i < constructorText.length; i++) {
+    const char = constructorText[i];
+
+    if (char === ')') {
+      tracker.replaceText(
+        node.getSourceFile(),
+        node.parameters.pos,
+        node.getStart() + i - node.parameters.pos,
+        '',
+      );
+      break;
+    }
+  }
 }
 
 /**
@@ -472,4 +635,182 @@ function replaceNodePlaceholder(
 ): string {
   const result = printer.printNode(ts.EmitHint.Unspecified, node, sourceFile);
   return result.replace(PLACEHOLDER, replacement);
+}
+
+/**
+ * Clones an optional array of modifiers. Can be useful to
+ * strip the comments from a node with modifiers.
+ */
+function cloneModifiers(modifiers: ts.ModifierLike[] | ts.NodeArray<ts.ModifierLike> | undefined) {
+  return modifiers?.map((modifier) => {
+    return ts.isDecorator(modifier)
+      ? ts.factory.createDecorator(modifier.expression)
+      : ts.factory.createModifier(modifier.kind);
+  });
+}
+
+/**
+ * Clones the name of a property. Can be useful to strip away
+ * the comments of a property without modifiers.
+ */
+function cloneName(node: ts.PropertyName): ts.PropertyName {
+  switch (node.kind) {
+    case ts.SyntaxKind.Identifier:
+      return ts.factory.createIdentifier(node.text);
+    case ts.SyntaxKind.StringLiteral:
+      return ts.factory.createStringLiteral(node.text, node.getText()[0] === `'`);
+    case ts.SyntaxKind.NoSubstitutionTemplateLiteral:
+      return ts.factory.createNoSubstitutionTemplateLiteral(node.text, node.rawText);
+    case ts.SyntaxKind.NumericLiteral:
+      return ts.factory.createNumericLiteral(node.text);
+    case ts.SyntaxKind.ComputedPropertyName:
+      return ts.factory.createComputedPropertyName(node.expression);
+    case ts.SyntaxKind.PrivateIdentifier:
+      return ts.factory.createPrivateIdentifier(node.text);
+    default:
+      return node;
+  }
+}
+
+/**
+ * Determines whether it's safe to delete a class constructor.
+ * @param options Options used to configure the migration.
+ * @param constructor Node representing the constructor.
+ * @param removedStatementCount Number of statements that were removed by the migration.
+ * @param prependToConstructor Statements that should be prepended to the constructor.
+ * @param superCall Node representing the `super()` call within the constructor.
+ */
+function canRemoveConstructor(
+  options: MigrationOptions,
+  constructor: ts.ConstructorDeclaration,
+  removedStatementCount: number,
+  prependToConstructor: string[],
+  superCall: ts.CallExpression | null,
+): boolean {
+  if (options.backwardsCompatibleConstructors || prependToConstructor.length > 0) {
+    return false;
+  }
+
+  const statementCount = constructor.body
+    ? constructor.body.statements.length - removedStatementCount
+    : 0;
+
+  return (
+    statementCount === 0 ||
+    (statementCount === 1 && superCall !== null && superCall.arguments.length === 0)
+  );
+}
+
+/**
+ * Gets the next statement after a node that *won't* be deleted by the migration.
+ * @param startNode Node from which to start the search.
+ * @param removedStatements Statements that have been removed by the migration.
+ * @returns
+ */
+function getNextPreservedStatement(
+  startNode: ts.Node,
+  removedStatements: Set<ts.Statement>,
+): ts.Statement | null {
+  const body = closestNode(startNode, ts.isBlock);
+  const closestStatement = closestNode(startNode, ts.isStatement);
+  if (body === null || closestStatement === null) {
+    return null;
+  }
+
+  const index = body.statements.indexOf(closestStatement);
+  if (index === -1) {
+    return null;
+  }
+
+  for (let i = index + 1; i < body.statements.length; i++) {
+    if (!removedStatements.has(body.statements[i])) {
+      return body.statements[i];
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Applies the internal-specific migrations to a class.
+ * @param node Class being migrated.
+ * @param constructor The migrated class' constructor.
+ * @param localTypeChecker File-specific type checker.
+ * @param tracker Object keeping track of the changes.
+ * @param printer Printer used to output AST nodes as text.
+ * @param removedStatements Statements that have been removed by the migration.
+ * @param removedMembers Class members that have been removed by the migration.
+ * @param prependToClass Text that will be prepended to a class.
+ * @param afterInjectCalls Text that will be inserted after the newly-added `inject` calls.
+ * @param memberIndentation Indentation string of the class' members.
+ */
+function applyInternalOnlyChanges(
+  node: ts.ClassDeclaration,
+  constructor: ts.ConstructorDeclaration,
+  localTypeChecker: ts.TypeChecker,
+  tracker: ChangeTracker,
+  printer: ts.Printer,
+  removedStatements: Set<ts.Statement>,
+  removedMembers: Set<ts.ClassElement>,
+  prependToClass: string[],
+  afterInjectCalls: string[],
+  memberIndentation: string,
+) {
+  const result = findUninitializedPropertiesToCombine(node, constructor, localTypeChecker);
+
+  if (result === null) {
+    return;
+  }
+
+  const preserveInitOrder = shouldCombineInInitializationOrder(result.toCombine, constructor);
+
+  // Sort the combined members based on the declaration order of their initializers, only if
+  // we've determined that would be safe. Note that `Array.prototype.sort` is in-place so we
+  // can just call it conditionally here.
+  if (preserveInitOrder) {
+    result.toCombine.sort((a, b) => a.initializer.getStart() - b.initializer.getStart());
+  }
+
+  result.toCombine.forEach(({declaration, initializer}) => {
+    const initializerStatement = closestNode(initializer, ts.isStatement);
+    const newProperty = ts.factory.createPropertyDeclaration(
+      cloneModifiers(declaration.modifiers),
+      cloneName(declaration.name),
+      declaration.questionToken,
+      declaration.type,
+      initializer,
+    );
+
+    // If the initialization order is being preserved, we have to remove the original
+    // declaration and re-declare it. Otherwise we can do the replacement in-place.
+    if (preserveInitOrder) {
+      tracker.removeNode(declaration, true);
+      removedMembers.add(declaration);
+      afterInjectCalls.push(
+        memberIndentation +
+          printer.printNode(ts.EmitHint.Unspecified, newProperty, declaration.getSourceFile()),
+      );
+    } else {
+      tracker.replaceNode(declaration, newProperty);
+    }
+
+    // This should always be defined, but null check it just in case.
+    if (initializerStatement) {
+      tracker.removeNode(initializerStatement, true);
+      removedStatements.add(initializerStatement);
+    }
+  });
+
+  result.toHoist.forEach((decl) => {
+    prependToClass.push(
+      memberIndentation + printer.printNode(ts.EmitHint.Unspecified, decl, decl.getSourceFile()),
+    );
+    tracker.removeNode(decl, true);
+    removedMembers.add(decl);
+  });
+
+  // If we added any hoisted properties, separate them visually with a new line.
+  if (prependToClass.length > 0) {
+    prependToClass.push('');
+  }
 }

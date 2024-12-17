@@ -3,7 +3,7 @@
  * Copyright Google LLC All Rights Reserved.
  *
  * Use of this source code is governed by an MIT-style license that can be
- * found in the LICENSE file at https://angular.io/license
+ * found in the LICENSE file at https://angular.dev/license
  */
 
 import ts from 'typescript';
@@ -16,7 +16,7 @@ import {isDeclaration} from '../../util/src/typescript';
 
 import {ArrayConcatBuiltinFn, ArraySliceBuiltinFn, StringConcatBuiltinFn} from './builtin';
 import {DynamicValue} from './dynamic';
-import {ForeignFunctionResolver} from './interface';
+import type {ForeignFunctionResolver} from './interface';
 import {
   EnumValue,
   KnownFn,

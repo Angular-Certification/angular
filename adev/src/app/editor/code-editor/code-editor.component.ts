@@ -6,7 +6,7 @@
  * found in the LICENSE file at https://angular.dev/license
  */
 
-import {Location, NgFor, NgIf} from '@angular/common';
+import {Location} from '@angular/common';
 import {
   AfterViewInit,
   ChangeDetectionStrategy,
@@ -31,6 +31,9 @@ import {DiagnosticWithLocation, DiagnosticsState} from './services/diagnostics-s
 import {DownloadManager} from '../download-manager.service';
 import {StackBlitzOpener} from '../stackblitz-opener.service';
 import {ClickOutside, IconComponent} from '@angular/docs';
+import {CdkMenu, CdkMenuItem, CdkMenuTrigger} from '@angular/cdk/menu';
+import {IDXLauncher} from '../idx-launcher.service';
+import {MatTooltip} from '@angular/material/tooltip';
 
 export const REQUIRED_FILES = new Set([
   'src/main.ts',
@@ -42,11 +45,18 @@ const ANGULAR_DEV = 'https://angular.dev';
 
 @Component({
   selector: 'docs-tutorial-code-editor',
-  standalone: true,
   templateUrl: './code-editor.component.html',
   styleUrls: ['./code-editor.component.scss'],
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [NgIf, NgFor, MatTabsModule, IconComponent, ClickOutside],
+  imports: [
+    MatTabsModule,
+    MatTooltip,
+    IconComponent,
+    ClickOutside,
+    CdkMenu,
+    CdkMenuItem,
+    CdkMenuTrigger,
+  ],
 })
 export class CodeEditor implements AfterViewInit, OnDestroy {
   @ViewChild('codeEditorWrapper') private codeEditorWrapperRef!: ElementRef<HTMLDivElement>;
@@ -78,6 +88,7 @@ export class CodeEditor implements AfterViewInit, OnDestroy {
   private readonly diagnosticsState = inject(DiagnosticsState);
   private readonly downloadManager = inject(DownloadManager);
   private readonly stackblitzOpener = inject(StackBlitzOpener);
+  private readonly idxLauncher = inject(IDXLauncher);
   private readonly title = inject(Title);
   private readonly location = inject(Location);
   private readonly embeddedTutorialManager = inject(EmbeddedTutorialManager);
@@ -117,6 +128,9 @@ export class CodeEditor implements AfterViewInit, OnDestroy {
     this.codeMirrorEditor.disable();
   }
 
+  openCurrentSolutionInIDX(): void {
+    this.idxLauncher.openCurrentSolutionInIDX();
+  }
   async openCurrentCodeInStackBlitz(): Promise<void> {
     const title = this.title.getTitle();
 

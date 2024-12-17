@@ -3,7 +3,7 @@
  * Copyright Google LLC All Rights Reserved.
  *
  * Use of this source code is governed by an MIT-style license that can be
- * found in the LICENSE file at https://angular.io/license
+ * found in the LICENSE file at https://angular.dev/license
  */
 
 import {retrieveHydrationInfo} from '../../hydration/utils';
@@ -35,7 +35,7 @@ export function renderComponent(hostLView: LView, componentHostIdx: number) {
   const hostRNode = componentView[HOST];
   // Populate an LView with hydration info retrieved from the DOM via TransferState.
   if (hostRNode !== null && componentView[HYDRATION] === null) {
-    componentView[HYDRATION] = retrieveHydrationInfo(hostRNode, componentView[INJECTOR]!);
+    componentView[HYDRATION] = retrieveHydrationInfo(hostRNode, componentView[INJECTOR]);
   }
 
   renderView(componentTView, componentView, componentView[CONTEXT]);
@@ -48,7 +48,7 @@ export function renderComponent(hostLView: LView, componentHostIdx: number) {
  * will be skipped. However, consider this case of two components side-by-side:
  *
  * App template:
- * ```
+ * ```html
  * <comp></comp>
  * <comp></comp>
  * ```
