@@ -12,6 +12,7 @@ import {RuntimeError, RuntimeErrorCode} from '../errors';
 import {OnDestroy} from '../interface/lifecycle_hooks';
 import {Type} from '../interface/type';
 import {
+  emitInjectorToCreateInstanceEvent,
   emitInstanceCreatedByInjectorEvent,
   emitProviderConfiguredEvent,
   InjectorProfilerContext,
@@ -113,6 +114,8 @@ interface Record<T> {
 /**
  * An `Injector` that's part of the environment injector hierarchy, which exists outside of the
  * component tree.
+ *
+ * @publicApi
  */
 export abstract class EnvironmentInjector implements Injector {
   /**
@@ -432,6 +435,7 @@ export class R3Injector extends EnvironmentInjector {
         // these are the only providers that do not go through the value hydration logic
         // where this event would normally be emitted from.
         if (isValueProvider(provider)) {
+          emitInjectorToCreateInstanceEvent(token);
           emitInstanceCreatedByInjectorEvent(provider.useValue);
         }
 
@@ -469,13 +473,14 @@ export class R3Injector extends EnvironmentInjector {
   private hydrate<T>(token: ProviderToken<T>, record: Record<T>): T {
     const prevConsumer = setActiveConsumer(null);
     try {
-      if (ngDevMode && record.value === CIRCULAR) {
+      if (record.value === CIRCULAR) {
         throwCyclicDependencyError(stringify(token));
       } else if (record.value === NOT_YET) {
         record.value = CIRCULAR;
 
         if (ngDevMode) {
           runInInjectorProfilerContext(this, token as Type<T>, () => {
+            emitInjectorToCreateInstanceEvent(token);
             record.value = record.factory!();
             emitInstanceCreatedByInjectorEvent(record.value);
           });

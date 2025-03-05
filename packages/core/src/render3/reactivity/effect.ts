@@ -157,7 +157,6 @@ export function effect(
     return microtaskEffect(effectFn, options);
   }
 
-  performanceMarkFeature('NgSignals');
   ngDevMode &&
     assertNotInReactiveContext(
       effect,
@@ -312,6 +311,7 @@ export const ROOT_EFFECT_NODE: Omit<RootEffectNode, 'fn' | 'scheduler' | 'notifi
       consumerDestroy(this);
       this.onDestroyFn();
       this.maybeCleanup();
+      this.scheduler.remove(this);
     },
   }))();
 
