@@ -245,6 +245,11 @@ const getDirectiveMetadata = (dir: any): DirectiveMetadata => {
   };
 };
 
+export function isOnPushDirective(dir: any): boolean {
+  const metadata = getDirectiveMetadata(dir.instance);
+  return metadata.onPush;
+}
+
 export function getInjectorProviders(injector: Injector) {
   if (isNullInjector(injector)) {
     return [];
@@ -294,8 +299,12 @@ const getDependenciesForDirective = (
       // (2)
       // We slice the import path to remove the first element because this is the same
       // injector as the last injector in the resolution path.
-      ...(foundProvider?.importPath ?? []).slice(1).map((node) => {
-        return {type: 'imported-module', name: valueToLabel(node), id: getInjectorId()};
+      ...(foundProvider?.importPath ?? []).slice(1).map((node): SerializedInjector => {
+        return {
+          type: 'imported-module',
+          name: valueToLabel(node),
+          id: getInjectorId(),
+        };
       }),
     ];
 
@@ -490,7 +499,6 @@ const getRootLViewsHelper = (element: Element, rootLViews = new Set<any>()): Set
     rootLViews.add(lView);
     return rootLViews;
   }
-  // tslint:disable-next-line: prefer-for-of
   for (let i = 0; i < element.children.length; i++) {
     getRootLViewsHelper(element.children[i], rootLViews);
   }

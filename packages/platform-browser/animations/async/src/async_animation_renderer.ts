@@ -26,6 +26,7 @@ import {
   ɵRuntimeError as RuntimeError,
   InjectionToken,
   type ListenerOptions,
+  Injector,
 } from '@angular/core';
 import {ɵRuntimeErrorCode as RuntimeErrorCode} from '@angular/platform-browser';
 
@@ -34,7 +35,8 @@ const ANIMATION_PREFIX = '@';
 @Injectable()
 export class AsyncAnimationRendererFactory implements OnDestroy, RendererFactory2 {
   private _rendererFactoryPromise: Promise<AnimationRendererFactory> | null = null;
-  private readonly scheduler = inject(ChangeDetectionScheduler, {optional: true});
+  private scheduler: ChangeDetectionScheduler | null = null;
+  private readonly injector = inject(Injector);
   private readonly loadingSchedulerFn = inject(ɵASYNC_ANIMATION_LOADING_SCHEDULER_FN, {
     optional: true,
   });
@@ -143,6 +145,7 @@ export class AsyncAnimationRendererFactory implements OnDestroy, RendererFactory
           rendererType,
         );
         dynamicRenderer.use(animationRenderer);
+        this.scheduler ??= this.injector.get(ChangeDetectionScheduler, null, {optional: true});
         this.scheduler?.notify(NotificationSource.AsyncAnimationsLoaded);
       })
       .catch((e) => {
@@ -163,6 +166,16 @@ export class AsyncAnimationRendererFactory implements OnDestroy, RendererFactory
 
   whenRenderingDone?(): Promise<any> {
     return this.delegate.whenRenderingDone?.() ?? Promise.resolve();
+  }
+
+  /**
+   * Used during HMR to clear any cached data about a component.
+   * @param componentId ID of the component that is being replaced.
+   */
+  protected componentReplaced(componentId: string) {
+    // Flush the engine since the renderer destruction waits for animations to be done.
+    this._engine?.flush();
+    (this.delegate as {componentReplaced?: (id: string) => void}).componentReplaced?.(componentId);
   }
 }
 

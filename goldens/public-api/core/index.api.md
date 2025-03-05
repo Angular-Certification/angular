@@ -185,6 +185,14 @@ export interface AttributeDecorator {
 }
 
 // @public
+export interface BaseResourceOptions<T, R> {
+    defaultValue?: NoInfer<T>;
+    equal?: ValueEqualityFn<T>;
+    injector?: Injector;
+    request?: () => R;
+}
+
+// @public
 export function booleanAttribute(value: unknown): boolean;
 
 // @public
@@ -287,7 +295,7 @@ export interface ComponentDecorator {
 // @public @deprecated
 export abstract class ComponentFactory<C> {
     abstract get componentType(): Type<any>;
-    abstract create(injector: Injector, projectableNodes?: any[][], rootSelectorOrNode?: string | any, environmentInjector?: EnvironmentInjector | NgModuleRef<any>): ComponentRef<C>;
+    abstract create(injector: Injector, projectableNodes?: any[][], rootSelectorOrNode?: string | any, environmentInjector?: EnvironmentInjector | NgModuleRef<any>, directives?: (Type<unknown> | DirectiveWithBindings<unknown>)[], bindings?: Binding[]): ComponentRef<C>;
     abstract get inputs(): {
         propName: string;
         templateName: string;
@@ -446,6 +454,8 @@ export function createComponent<C>(component: Type<C>, options: {
     hostElement?: Element;
     elementInjector?: Injector;
     projectableNodes?: Node[][];
+    directives?: (Type<unknown> | DirectiveWithBindings<unknown>)[];
+    bindings?: Binding[];
 }): ComponentRef<C>;
 
 // @public
@@ -579,6 +589,12 @@ export class DefaultIterableDiffer<V> implements IterableDiffer<V>, IterableChan
 
 // @public @deprecated (undocumented)
 export const defineInjectable: typeof ɵɵdefineInjectable;
+
+// @public
+export interface DestroyableInjector extends Injector {
+    // (undocumented)
+    destroy(): void;
+}
 
 // @public
 export function destroyPlatform(): void;
@@ -941,7 +957,7 @@ export abstract class Injector {
         providers: Array<Provider | StaticProvider>;
         parent?: Injector;
         name?: string;
-    }): Injector;
+    }): DestroyableInjector;
     abstract get<T>(token: ProviderToken<T>, notFoundValue: undefined, options: InjectOptions & {
         optional?: false;
     }): T;
@@ -979,6 +995,9 @@ export const Input: InputDecorator;
 
 // @public
 export const input: InputFunction;
+
+// @public
+export function inputBinding(publicName: string, value: () => unknown): Binding;
 
 // @public (undocumented)
 export interface InputDecorator {
@@ -1345,6 +1364,9 @@ export const Output: OutputDecorator;
 export function output<T = void>(opts?: OutputOptions): OutputEmitterRef<T>;
 
 // @public
+export function outputBinding<T>(eventName: string, listener: (event: T) => unknown): Binding;
+
+// @public
 export interface OutputDecorator {
     (alias?: string): any;
     // (undocumented)
@@ -1382,7 +1404,7 @@ export const PACKAGE_ROOT_URL: InjectionToken<string>;
 // @public
 export class PendingTasks {
     add(): () => void;
-    run<T>(fn: () => Promise<T>): Promise<T>;
+    run<T>(fn: () => Promise<T>): void;
     // (undocumented)
     static ɵprov: unknown;
 }
@@ -1435,6 +1457,12 @@ export class PlatformRef {
 
 // @public
 export type Predicate<T> = (value: T) => boolean;
+
+// @public
+export interface PromiseResourceOptions<T, R> extends BaseResourceOptions<T, R> {
+    loader: ResourceLoader<T, R>;
+    stream?: never;
+}
 
 // @public
 export function provideAppInitializer(initializerFn: () => Observable<unknown> | Promise<unknown> | void): EnvironmentProviders;
@@ -1585,17 +1613,20 @@ export function resolveForwardRef<T>(type: T): T;
 // @public
 export interface Resource<T> {
     readonly error: Signal<unknown>;
-    hasValue(): this is Resource<T> & {
-        value: Signal<T>;
-    };
+    hasValue(): this is Resource<Exclude<T, undefined>>;
     readonly isLoading: Signal<boolean>;
     reload(): boolean;
     readonly status: Signal<ResourceStatus>;
-    readonly value: Signal<T | undefined>;
+    readonly value: Signal<T>;
 }
 
 // @public
-export function resource<T, R>(options: ResourceOptions<T, R>): ResourceRef<T>;
+export function resource<T, R>(options: ResourceOptions<T, R> & {
+    defaultValue: NoInfer<T>;
+}): ResourceRef<T>;
+
+// @public
+export function resource<T, R>(options: ResourceOptions<T, R>): ResourceRef<T | undefined>;
 
 // @public
 export type ResourceLoader<T, R> = (param: ResourceLoaderParams<R>) => PromiseLike<T>;
@@ -1612,17 +1643,14 @@ export interface ResourceLoaderParams<R> {
     request: Exclude<NoInfer<R>, undefined>;
 }
 
-// @public
-export interface ResourceOptions<T, R> {
-    equal?: ValueEqualityFn<T>;
-    injector?: Injector;
-    loader: ResourceLoader<T, R>;
-    request?: () => R;
-}
+// @public (undocumented)
+export type ResourceOptions<T, R> = PromiseResourceOptions<T, R> | StreamingResourceOptions<T, R>;
 
 // @public
 export interface ResourceRef<T> extends WritableResource<T> {
     destroy(): void;
+    // (undocumented)
+    hasValue(): this is ResourceRef<Exclude<T, undefined>>;
 }
 
 // @public
@@ -1634,6 +1662,16 @@ export enum ResourceStatus {
     Reloading = 3,
     Resolved = 4
 }
+
+// @public
+export type ResourceStreamingLoader<T, R> = (param: ResourceLoaderParams<R>) => PromiseLike<Signal<ResourceStreamItem<T>>>;
+
+// @public (undocumented)
+export type ResourceStreamItem<T> = {
+    value: T;
+} | {
+    error: unknown;
+};
 
 // @public
 export const RESPONSE_INIT: InjectionToken<ResponseInit | null>;
@@ -1748,6 +1786,12 @@ export interface StaticClassSansProvider {
 
 // @public
 export type StaticProvider = ValueProvider | ExistingProvider | StaticClassProvider | ConstructorProvider | FactoryProvider | any[];
+
+// @public
+export interface StreamingResourceOptions<T, R> extends BaseResourceOptions<T, R> {
+    loader?: never;
+    stream: ResourceStreamingLoader<T, R>;
+}
 
 // @public
 export abstract class TemplateRef<C> {
@@ -1944,9 +1988,11 @@ export abstract class ViewContainerRef {
         ngModuleRef?: NgModuleRef<unknown>;
         environmentInjector?: EnvironmentInjector | NgModuleRef<unknown>;
         projectableNodes?: Node[][];
+        directives?: (Type<unknown> | DirectiveWithBindings<unknown>)[];
+        bindings?: Binding[];
     }): ComponentRef<C>;
     // @deprecated
-    abstract createComponent<C>(componentFactory: ComponentFactory<C>, index?: number, injector?: Injector, projectableNodes?: any[][], environmentInjector?: EnvironmentInjector | NgModuleRef<any>): ComponentRef<C>;
+    abstract createComponent<C>(componentFactory: ComponentFactory<C>, index?: number, injector?: Injector, projectableNodes?: any[][], environmentInjector?: EnvironmentInjector | NgModuleRef<any>, directives?: (Type<unknown> | DirectiveWithBindings<unknown>)[], bindings?: Binding[]): ComponentRef<C>;
     abstract createEmbeddedView<C>(templateRef: TemplateRef<C>, context?: C, options?: {
         index?: number;
         injector?: Injector;
@@ -1984,13 +2030,11 @@ export interface WritableResource<T> extends Resource<T> {
     // (undocumented)
     asReadonly(): Resource<T>;
     // (undocumented)
-    hasValue(): this is WritableResource<T> & {
-        value: WritableSignal<T>;
-    };
-    set(value: T | undefined): void;
-    update(updater: (value: T | undefined) => T | undefined): void;
+    hasValue(): this is WritableResource<Exclude<T, undefined>>;
+    set(value: T): void;
+    update(updater: (value: T) => T): void;
     // (undocumented)
-    readonly value: WritableSignal<T | undefined>;
+    readonly value: WritableSignal<T>;
 }
 
 // @public
