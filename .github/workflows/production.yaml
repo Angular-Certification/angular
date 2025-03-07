@@ -39,6 +39,9 @@ jobs:
       - name: Rename index.csr.html
         run: sudo mv ./dist/bin/adev/build/browser/index.csr.html ./dist/bin/adev/build/browser/index.html
 
+      - name: Add _redirects
+        run: sudo cp ./_redirects ./dist/bin/adev/build/browser/_redirects
+
       - name: Deploy Project Artifacts to Netlify
         run: |
           netlify deploy \
