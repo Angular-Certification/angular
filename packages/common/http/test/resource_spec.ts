@@ -8,7 +8,13 @@
 
 import {ApplicationRef, Injector, signal} from '@angular/core';
 import {TestBed} from '@angular/core/testing';
-import {HttpEventType, provideHttpClient, httpResource} from '@angular/common/http';
+import {
+  HttpEventType,
+  provideHttpClient,
+  httpResource,
+  HttpContext,
+  HttpContextToken,
+} from '@angular/common/http';
 import {HttpTestingController, provideHttpClientTesting} from '@angular/common/http/testing';
 
 describe('httpResource', () => {
@@ -145,6 +151,40 @@ describe('httpResource', () => {
     expect(res.value()).toEqual([]);
   });
 
+  it('should pass all request parameters', () => {
+    const backend = TestBed.inject(HttpTestingController);
+
+    const CTX_TOKEN = new HttpContextToken(() => 'value');
+    const res = httpResource(
+      () => ({
+        url: '/data',
+        params: {
+          'fast': 'yes',
+        },
+        responseType: 'text', // This one is not overwritten (and no excess property check from ts)
+        headers: {
+          'X-Tag': 'alpha,beta',
+        },
+        reportProgress: true,
+        context: new HttpContext().set(CTX_TOKEN, 'bar'),
+        withCredentials: true,
+        transferCache: {includeHeaders: ['Y-Tag']},
+      }),
+      {
+        injector: TestBed.inject(Injector),
+      },
+    );
+    TestBed.flushEffects();
+
+    const req = TestBed.inject(HttpTestingController).expectOne('/data?fast=yes');
+    expect(req.request.headers.get('X-Tag')).toEqual('alpha,beta');
+    expect(req.request.responseType).toEqual('json');
+    expect(req.request.withCredentials).toEqual(true);
+    expect(req.request.context.get(CTX_TOKEN)).toEqual('bar');
+    expect(req.request.reportProgress).toEqual(true);
+    expect(req.request.transferCache).toEqual({includeHeaders: ['Y-Tag']});
+  });
+
   it('should allow mapping data to an arbitrary type', async () => {
     const backend = TestBed.inject(HttpTestingController);
     const res = httpResource(
@@ -163,6 +203,23 @@ describe('httpResource', () => {
 
     await TestBed.inject(ApplicationRef).whenStable();
     expect(res.value()).toEqual('[1,2,3]');
+  });
+
+  it('should allow defining an equality function', async () => {
+    const backend = TestBed.inject(HttpTestingController);
+    const res = httpResource<number>('/data', {
+      injector: TestBed.inject(Injector),
+      equal: (_a, _b) => true,
+    });
+    TestBed.flushEffects();
+    const req = backend.expectOne('/data');
+    req.flush(1);
+
+    await TestBed.inject(ApplicationRef).whenStable();
+    expect(res.value()).toEqual(1);
+
+    res.value.set(5);
+    expect(res.value()).toBe(1); // equality blocked writes
   });
 
   it('should support text responses', async () => {
