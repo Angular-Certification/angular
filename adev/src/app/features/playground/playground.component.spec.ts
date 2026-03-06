@@ -6,61 +6,51 @@
  * found in the LICENSE file at https://angular.dev/license
  */
 
-import {Component} from '@angular/core';
 import {ComponentFixture, TestBed} from '@angular/core/testing';
+import {WINDOW} from '@angular/docs';
 
-import {
-  EMBEDDED_EDITOR_SELECTOR,
-  EmbeddedEditor,
-  NodeRuntimeSandbox,
-  EmbeddedTutorialManager,
-} from '../../editor';
+import {EmbeddedTutorialManager} from '../../editor';
+import {NodeRuntimeSandbox} from '../../editor/node-runtime-sandbox.service';
 
-import {mockAsyncProvider} from '../../core/services/inject-async';
 import TutorialPlayground from './playground.component';
-
-@Component({
-  selector: EMBEDDED_EDITOR_SELECTOR,
-  template: '<div>FakeEmbeddedEditor</div>',
-})
-class FakeEmbeddedEditor {}
-
-class FakeNodeRuntimeSandbox {
-  init() {
-    return Promise.resolve();
-  }
-}
+import {provideRouter} from '@angular/router';
+import {mockAsyncProvider} from '../../core/services/inject-async';
 
 describe('TutorialPlayground', () => {
   let component: TutorialPlayground;
   let fixture: ComponentFixture<TutorialPlayground>;
 
-  beforeEach(() => {
+  const fakeWindow = {
+    location: {
+      search: window.location.search,
+    },
+  };
+
+  beforeEach(async () => {
+    class FakeEmbeddedTutorialManager {
+      fetchAndSetTutorialFiles() {}
+    }
+
+    class FakeNodeRuntimeSandbox {
+      init() {}
+    }
+
     TestBed.configureTestingModule({
       imports: [TutorialPlayground],
       providers: [
+        provideRouter([]),
         {
-          provide: EmbeddedTutorialManager,
-          useValue: {
-            fetchAndSetTutorialFiles: () => {},
-          },
+          provide: WINDOW,
+          useValue: fakeWindow,
         },
         mockAsyncProvider(NodeRuntimeSandbox, FakeNodeRuntimeSandbox),
+        mockAsyncProvider(EmbeddedTutorialManager, FakeEmbeddedTutorialManager),
       ],
-    });
-
-    TestBed.overrideComponent(TutorialPlayground, {
-      remove: {
-        imports: [EmbeddedEditor],
-      },
-      add: {
-        imports: [FakeEmbeddedEditor],
-      },
     });
 
     fixture = TestBed.createComponent(TutorialPlayground);
     component = fixture.componentInstance;
-    fixture.detectChanges();
+    await fixture.whenStable();
   });
 
   it('should create', () => {

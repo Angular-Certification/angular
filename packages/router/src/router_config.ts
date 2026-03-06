@@ -26,7 +26,7 @@ import {OnSameUrlNavigation, QueryParamsHandling, RedirectCommand} from './model
  * more control over when the router starts its initial navigation due to some complex
  * initialization logic.
  *
- * @see {@link forRoot()}
+ * @see {@link /api/router/RouterModule#forRoot forRoot}
  *
  * @publicApi
  */
@@ -34,6 +34,8 @@ export type InitialNavigation = 'disabled' | 'enabledBlocking' | 'enabledNonBloc
 
 /**
  * Extra configuration options that can be used with the `withRouterConfig` function.
+ *
+ * @see [Router configuration options](guide/routing/customizing-route-behavior#router-configuration-options)
  *
  * @publicApi
  */
@@ -58,6 +60,9 @@ export interface RouterConfigOptions {
    * the browser history rather than simply resetting a portion of the URL.
    *
    * The default value is `replace` when not set.
+   *
+   * @see [Handle canceled navigations](guide/routing/customizing-route-behavior#handle-canceled-navigations)
+   *
    */
   canceledNavigationResolution?: 'replace' | 'computed';
 
@@ -67,6 +72,8 @@ export interface RouterConfigOptions {
    * If unset, the `Router` will use `'ignore'`.
    *
    * @see {@link OnSameUrlNavigation}
+   *
+   * @see [React to same-URL navigations](guide/routing/customizing-route-behavior#react-to-same-url-navigations)
    */
   onSameUrlNavigation?: OnSameUrlNavigation;
 
@@ -86,6 +93,8 @@ export interface RouterConfigOptions {
    * matrix parameters for `{path: 'a/b', component: MyComp}` should appear as `a/b;foo=bar` and not
    * `a;foo=bar/b`.
    *
+   * @see [Control parameter inheritance](guide/routing/customizing-route-behavior#control-parameter-inheritance)
+   *
    */
   paramsInheritanceStrategy?: 'emptyOnly' | 'always';
 
@@ -95,6 +104,9 @@ export interface RouterConfigOptions {
    * Set to 'eager' if prefer to update the URL at the beginning of navigation.
    * Updating the URL early allows you to handle a failure of navigation by
    * showing an error message with the URL that failed.
+   *
+   * @see [Decide when the URL updates](guide/routing/customizing-route-behavior#decide-when-the-url-updates)
+   *
    */
   urlUpdateStrategy?: 'deferred' | 'eager';
 
@@ -109,6 +121,10 @@ export interface RouterConfigOptions {
    *
    * @see {@link Router#createUrlTree}
    * @see {@link QueryParamsHandling}
+   * 
+   * @see [Choose default query parameter handling](guide/routing/customizing-route-behavior#choose-default-query-parameter-handling)
+
+   * 
    */
   defaultQueryParamsHandling?: QueryParamsHandling;
 
@@ -124,9 +140,11 @@ export interface RouterConfigOptions {
 
 /**
  * Configuration options for the scrolling feature which can be used with `withInMemoryScrolling`
- * function.
+ * function or `RouterModule.forRoot`.
  *
  * @publicApi
+ * @see withInMemoryScrolling
+ * @see RouterModule#forRoot
  */
 export interface InMemoryScrollingOptions {
   /**
@@ -179,7 +197,7 @@ export interface InMemoryScrollingOptions {
  * A set of configuration options for a router module, provided in the
  * `forRoot()` method.
  *
- * @see {@link forRoot()}
+ * @see {@link /api/router/routerModule#forRoot forRoot}
  *
  *
  * @publicApi
@@ -223,7 +241,7 @@ export interface ExtraOptions extends InMemoryScrollingOptions, RouterConfigOpti
    *
    * @see https://developer.chrome.com/docs/web-platform/view-transitions/
    * @see https://developer.mozilla.org/en-US/docs/Web/API/View_Transitions_API
-   * @experimental
+   * @experimental 17.0
    */
   enableViewTransitions?: boolean;
 
@@ -261,7 +279,6 @@ export interface ExtraOptions extends InMemoryScrollingOptions, RouterConfigOpti
 export const ROUTER_CONFIGURATION = new InjectionToken<ExtraOptions>(
   typeof ngDevMode === 'undefined' || ngDevMode ? 'router config' : '',
   {
-    providedIn: 'root',
     factory: () => ({}),
   },
 );

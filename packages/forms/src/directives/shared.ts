@@ -31,10 +31,12 @@ import {AsyncValidatorFn, Validator, ValidatorFn} from './validators';
  *
  * @see {@link FormsModule#withconfig}
  */
-export const CALL_SET_DISABLED_STATE = new InjectionToken('CallSetDisabledState', {
-  providedIn: 'root',
-  factory: () => setDisabledStateDefault,
-});
+export const CALL_SET_DISABLED_STATE = new InjectionToken(
+  typeof ngDevMode === 'undefined' || ngDevMode ? 'CallSetDisabledState' : '',
+  {
+    factory: () => setDisabledStateDefault,
+  },
+);
 
 /**
  * The type for CALL_SET_DISABLED_STATE. If `always`, then ControlValueAccessor will always call
@@ -118,10 +120,9 @@ export function cleanUpControl(
   // case. We still check the presence of `valueAccessor` before invoking its methods to make sure
   // that cleanup works correctly if app code or tests are setup to ignore the error thrown from
   // `selectValueAccessor`. See https://github.com/angular/angular/issues/40521.
-  if (dir.valueAccessor) {
-    dir.valueAccessor.registerOnChange(noop);
-    dir.valueAccessor.registerOnTouched(noop);
-  }
+
+  dir?.valueAccessor?.registerOnChange(noop);
+  dir?.valueAccessor?.registerOnTouched(noop);
 
   cleanUpValidators(control, dir);
 
@@ -368,7 +369,7 @@ export function isBuiltInAccessor(valueAccessor: ControlValueAccessor): boolean 
 }
 
 export function syncPendingControls(
-  form: FormGroup,
+  form: AbstractControl,
   directives: Set<NgControl> | NgControl[],
 ): void {
   form._syncPendingControls();

@@ -14,16 +14,15 @@ import {
   forwardRef,
   NgModule,
   NgZone,
-  provideExperimentalZonelessChangeDetection,
+  provideZonelessChangeDetection,
   provideZoneChangeDetection,
   TestabilityRegistry,
   ViewContainerRef,
   ViewEncapsulation,
   ɵNoopNgZone,
   ɵZONELESS_ENABLED,
-} from '@angular/core';
-import {bootstrapApplication, BrowserModule} from '@angular/platform-browser';
-import {platformBrowserDynamic} from '@angular/platform-browser-dynamic';
+} from '../../src/core';
+import {bootstrapApplication, BrowserModule, platformBrowser} from '@angular/platform-browser';
 import {withBody} from '@angular/private/testing';
 
 describe('bootstrap', () => {
@@ -34,7 +33,7 @@ describe('bootstrap', () => {
     'should bootstrap using #id selector',
     withBody('<div>before|</div><button id="my-app"></button>', async () => {
       try {
-        const ngModuleRef = await platformBrowserDynamic().bootstrapModule(IdSelectorAppModule);
+        const ngModuleRef = await platformBrowser().bootstrapModule(IdSelectorAppModule);
         expect(document.body.textContent).toEqual('before|works!');
         ngModuleRef.destroy();
       } catch (err) {
@@ -47,9 +46,7 @@ describe('bootstrap', () => {
     'should bootstrap using one of selectors from the list',
     withBody('<div>before|</div><div class="bar"></div>', async () => {
       try {
-        const ngModuleRef = await platformBrowserDynamic().bootstrapModule(
-          MultipleSelectorsAppModule,
-        );
+        const ngModuleRef = await platformBrowser().bootstrapModule(MultipleSelectorsAppModule);
         expect(document.body.textContent).toEqual('before|works!');
         ngModuleRef.destroy();
       } catch (err) {
@@ -61,10 +58,10 @@ describe('bootstrap', () => {
   it(
     'should allow injecting VCRef into the root (bootstrapped) component',
     withBody('before|<test-cmp></test-cmp>|after', async () => {
-      @Component({selector: 'dynamic-cmp', standalone: true, template: 'dynamic'})
+      @Component({selector: 'dynamic-cmp', template: 'dynamic'})
       class DynamicCmp {}
 
-      @Component({selector: 'test-cmp', standalone: true, template: '(test)'})
+      @Component({selector: 'test-cmp', template: '(test)'})
       class TestCmp {
         constructor(public vcRef: ViewContainerRef) {}
       }
@@ -118,7 +115,7 @@ describe('bootstrap', () => {
       withBody('<my-app></my-app>', async () => {
         const TestModule = createComponentAndModule();
 
-        const ngModuleRef = await platformBrowserDynamic().bootstrapModule(TestModule);
+        const ngModuleRef = await platformBrowser().bootstrapModule(TestModule);
         expect(document.body.innerHTML).toContain('<span _ngcontent-');
         ngModuleRef.destroy();
       }),
@@ -129,7 +126,7 @@ describe('bootstrap', () => {
       withBody('<my-app></my-app>', async () => {
         const TestModule = createComponentAndModule();
 
-        const ngModuleRef = await platformBrowserDynamic().bootstrapModule(TestModule, {
+        const ngModuleRef = await platformBrowser().bootstrapModule(TestModule, {
           defaultEncapsulation: ViewEncapsulation.None,
         });
         expect(document.body.innerHTML).toContain('<span>');
@@ -143,7 +140,7 @@ describe('bootstrap', () => {
       withBody('<my-app></my-app>', async () => {
         const TestModule = createComponentAndModule();
 
-        const ngModuleRef = await platformBrowserDynamic([
+        const ngModuleRef = await platformBrowser([
           {
             provide: COMPILER_OPTIONS,
             useValue: {defaultEncapsulation: ViewEncapsulation.None},
@@ -161,7 +158,7 @@ describe('bootstrap', () => {
       withBody('<my-app></my-app>', async () => {
         const TestModule = createComponentAndModule({encapsulation: ViewEncapsulation.Emulated});
 
-        const ngModuleRef = await platformBrowserDynamic().bootstrapModule(TestModule, {
+        const ngModuleRef = await platformBrowser().bootstrapModule(TestModule, {
           defaultEncapsulation: ViewEncapsulation.None,
         });
         expect(document.body.innerHTML).toContain('<span _ngcontent-');
@@ -174,7 +171,7 @@ describe('bootstrap', () => {
       withBody('<my-app></my-app>', async () => {
         const TestModule = createComponentAndModule();
 
-        const ngModuleRef = await platformBrowserDynamic().bootstrapModule(TestModule);
+        const ngModuleRef = await platformBrowser().bootstrapModule(TestModule);
         expect(document.body.innerHTML).toContain('a b');
         ngModuleRef.destroy();
       }),
@@ -185,7 +182,7 @@ describe('bootstrap', () => {
       withBody('<my-app></my-app>', async () => {
         const TestModule = createComponentAndModule();
 
-        const ngModuleRef = await platformBrowserDynamic().bootstrapModule(TestModule, {
+        const ngModuleRef = await platformBrowser().bootstrapModule(TestModule, {
           preserveWhitespaces: true,
         });
         expect(document.body.innerHTML).toContain('a    b');
@@ -198,7 +195,7 @@ describe('bootstrap', () => {
       withBody('<my-app></my-app>', async () => {
         const TestModule = createComponentAndModule();
 
-        const ngModuleRef = await platformBrowserDynamic([
+        const ngModuleRef = await platformBrowser([
           {provide: COMPILER_OPTIONS, useValue: {preserveWhitespaces: true}, multi: true},
         ]).bootstrapModule(TestModule);
         expect(document.body.innerHTML).toContain('a    b');
@@ -211,7 +208,7 @@ describe('bootstrap', () => {
       withBody('<my-app></my-app>', async () => {
         const TestModule = createComponentAndModule({preserveWhitespaces: false});
 
-        const ngModuleRef = await platformBrowserDynamic().bootstrapModule(TestModule, {
+        const ngModuleRef = await platformBrowser().bootstrapModule(TestModule, {
           preserveWhitespaces: true,
         });
         expect(document.body.innerHTML).toContain('a b');
@@ -225,7 +222,7 @@ describe('bootstrap', () => {
         withBody('<my-app></my-app>', async () => {
           const TestModule = createComponentAndModule();
 
-          const ngModuleRef = await platformBrowserDynamic().bootstrapModule(TestModule);
+          const ngModuleRef = await platformBrowser().bootstrapModule(TestModule);
           const appRef = ngModuleRef.injector.get(ApplicationRef);
           const testabilityRegistry = ngModuleRef.injector.get(TestabilityRegistry);
 
@@ -244,7 +241,7 @@ describe('bootstrap', () => {
         withBody('<my-app></my-app>', async () => {
           const TestModule = createComponentAndModule();
 
-          const ngModuleRef = await platformBrowserDynamic().bootstrapModule(TestModule);
+          const ngModuleRef = await platformBrowser().bootstrapModule(TestModule);
           const appRef = ngModuleRef.injector.get(ApplicationRef);
           const testabilityRegistry = ngModuleRef.injector.get(TestabilityRegistry);
           const componentRef = appRef.components[0];
@@ -264,7 +261,7 @@ describe('bootstrap', () => {
         withBody('<my-app></my-app>', async () => {
           const TestModule = createComponentAndModule();
 
-          const ngModuleRef = await platformBrowserDynamic().bootstrapModule(TestModule);
+          const ngModuleRef = await platformBrowser().bootstrapModule(TestModule);
           const appRef = ngModuleRef.injector.get(ApplicationRef);
           const testabilityRegistry = ngModuleRef.injector.get(TestabilityRegistry);
           const componentRef = appRef.components[0];
@@ -285,7 +282,7 @@ describe('bootstrap', () => {
         withBody('<my-app></my-app>', async () => {
           const TestModule = createComponentAndModule();
 
-          const ngModuleRef = await platformBrowserDynamic().bootstrapModule(TestModule);
+          const ngModuleRef = await platformBrowser().bootstrapModule(TestModule);
           const appRef = ngModuleRef.injector.get(ApplicationRef);
           const testabilityRegistry = ngModuleRef.injector.get(TestabilityRegistry);
           const componentRef = appRef.components[0];
@@ -305,7 +302,6 @@ describe('bootstrap', () => {
         'should throw when standalone component is used in @NgModule.bootstrap',
         withBody('<my-app></my-app>', async () => {
           @Component({
-            standalone: true,
             selector: 'standalone-comp',
             template: '...',
           })
@@ -317,7 +313,7 @@ describe('bootstrap', () => {
           class MyModule {}
 
           try {
-            await platformBrowserDynamic().bootstrapModule(MyModule);
+            await platformBrowser().bootstrapModule(MyModule);
 
             // This test tries to bootstrap a standalone component using NgModule-based bootstrap
             // mechanisms. We expect standalone components to be bootstrapped via
@@ -351,7 +347,7 @@ describe('bootstrap', () => {
           })
           class MyModule {}
 
-          const {injector} = await platformBrowserDynamic().bootstrapModule(MyModule);
+          const {injector} = await platformBrowser().bootstrapModule(MyModule);
           expect((injector.get(NgZone) as any).shouldCoalesceEventChangeDetection).toBe(true);
         }),
       );
@@ -368,13 +364,13 @@ describe('bootstrap', () => {
 
           @NgModule({
             declarations: [App],
-            providers: [provideExperimentalZonelessChangeDetection()],
+            providers: [provideZonelessChangeDetection()],
             imports: [BrowserModule],
             bootstrap: [App],
           })
           class MyModule {}
 
-          const {injector} = await platformBrowserDynamic().bootstrapModule(MyModule);
+          const {injector} = await platformBrowser().bootstrapModule(MyModule);
           expect(injector.get(NgZone)).toBeInstanceOf(ɵNoopNgZone);
           expect(injector.get(ɵZONELESS_ENABLED)).toBeTrue();
         }),
@@ -384,7 +380,6 @@ describe('bootstrap', () => {
         'should throw when standalone component wrapped in `forwardRef` is used in @NgModule.bootstrap',
         withBody('<my-app></my-app>', async () => {
           @Component({
-            standalone: true,
             selector: 'standalone-comp',
             template: '...',
           })
@@ -396,7 +391,7 @@ describe('bootstrap', () => {
           class MyModule {}
 
           try {
-            await platformBrowserDynamic().bootstrapModule(MyModule);
+            await platformBrowser().bootstrapModule(MyModule);
 
             // This test tries to bootstrap a standalone component using NgModule-based bootstrap
             // mechanisms. We expect standalone components to be bootstrapped via
@@ -420,7 +415,7 @@ describe('bootstrap', () => {
         withBody('<my-app></my-app>', async () => {
           const TestModule = createComponentAndModule();
 
-          const ngModuleRef = await platformBrowserDynamic().bootstrapModule(TestModule);
+          const ngModuleRef = await platformBrowser().bootstrapModule(TestModule);
           const ngZone = ngModuleRef.injector.get(NgZone);
 
           expect(ngZone.onError.observers.length).toBe(1);
@@ -440,7 +435,7 @@ describe('bootstrap', () => {
       it(
         'should log an error when changing defaultEncapsulation bootstrap options',
         withBody('<my-app-a></my-app-a><my-app-b></my-app-b>', async () => {
-          const platformRef = platformBrowserDynamic();
+          const platformRef = platformBrowser();
 
           const TestModuleA = createComponentAndModule({selector: 'my-app-a'});
           const ngModuleRefA = await platformRef.bootstrapModule(TestModuleA, {
@@ -466,7 +461,7 @@ describe('bootstrap', () => {
       it(
         'should log an error when changing preserveWhitespaces bootstrap options',
         withBody('<my-app-a></my-app-a><my-app-b></my-app-b>', async () => {
-          const platformRef = platformBrowserDynamic();
+          const platformRef = platformBrowser();
 
           const TestModuleA = createComponentAndModule({selector: 'my-app-a'});
           const ngModuleRefA = await platformRef.bootstrapModule(TestModuleA, {
@@ -492,7 +487,7 @@ describe('bootstrap', () => {
       it(
         'should log an error when changing defaultEncapsulation to its default',
         withBody('<my-app-a></my-app-a><my-app-b></my-app-b>', async () => {
-          const platformRef = platformBrowserDynamic();
+          const platformRef = platformBrowser();
 
           const TestModuleA = createComponentAndModule({selector: 'my-app-a'});
           const ngModuleRefA = await platformRef.bootstrapModule(TestModuleA);
@@ -515,7 +510,7 @@ describe('bootstrap', () => {
       it(
         'should log an error when changing preserveWhitespaces to its default',
         withBody('<my-app-a></my-app-a><my-app-b></my-app-b>', async () => {
-          const platformRef = platformBrowserDynamic();
+          const platformRef = platformBrowser();
 
           const TestModuleA = createComponentAndModule({selector: 'my-app-a'});
           const ngModuleRefA = await platformRef.bootstrapModule(TestModuleA);
@@ -538,7 +533,7 @@ describe('bootstrap', () => {
       it(
         'should not log an error when passing identical bootstrap options',
         withBody('<my-app-a></my-app-a><my-app-b></my-app-b>', async () => {
-          const platformRef = platformBrowserDynamic();
+          const platformRef = platformBrowser();
 
           const TestModuleA = createComponentAndModule({selector: 'my-app-a'});
           const ngModuleRefA = await platformRef.bootstrapModule(TestModuleA, {

@@ -52,20 +52,18 @@ class SerializeExpressionVisitor implements expr.AstVisitor {
     return `${ast.receiver.visit(this, context)}[${ast.key.visit(this, context)}]`;
   }
 
-  visitKeyedWrite(ast: expr.KeyedWrite, context: any): string {
-    return `${ast.receiver.visit(this, context)}[${ast.key.visit(
-      this,
-      context,
-    )}] = ${ast.value.visit(this, context)}`;
-  }
-
   visitLiteralArray(ast: expr.LiteralArray, context: any): string {
     return `[${ast.expressions.map((e) => e.visit(this, context)).join(', ')}]`;
   }
 
   visitLiteralMap(ast: expr.LiteralMap, context: any): string {
     return `{${zip(
-      ast.keys.map((literal) => (literal.quoted ? `'${literal.key}'` : literal.key)),
+      ast.keys.map((literal) => {
+        if (literal.kind === 'spread') {
+          return '...';
+        }
+        return literal.quoted ? `'${literal.key}'` : literal.key;
+      }),
       ast.values.map((value) => value.visit(this, context)),
     )
       .map(([key, value]) => `${key}: ${value}`)
@@ -101,18 +99,13 @@ class SerializeExpressionVisitor implements expr.AstVisitor {
   }
 
   visitPropertyRead(ast: expr.PropertyRead, context: any): string {
-    if (ast.receiver instanceof expr.ImplicitReceiver) {
+    if (
+      ast.receiver instanceof expr.ImplicitReceiver ||
+      ast.receiver instanceof expr.ThisReceiver
+    ) {
       return ast.name;
     } else {
       return `${ast.receiver.visit(this, context)}.${ast.name}`;
-    }
-  }
-
-  visitPropertyWrite(ast: expr.PropertyWrite, context: any): string {
-    if (ast.receiver instanceof expr.ImplicitReceiver) {
-      return `${ast.name} = ${ast.value.visit(this, context)}`;
-    } else {
-      return `${ast.receiver.visit(this, context)}.${ast.name} = ${ast.value.visit(this, context)}`;
     }
   }
 
@@ -136,12 +129,60 @@ class SerializeExpressionVisitor implements expr.AstVisitor {
       .join(', ')})`;
   }
 
-  visitTypeofExpresion(ast: expr.TypeofExpression, context: any) {
+  visitTypeofExpression(ast: expr.TypeofExpression, context: any) {
     return `typeof ${ast.expression.visit(this, context)}`;
+  }
+
+  visitVoidExpression(ast: expr.VoidExpression, context: any) {
+    return `void ${ast.expression.visit(this, context)}`;
+  }
+
+  visitRegularExpressionLiteral(ast: expr.RegularExpressionLiteral, context: any) {
+    return `/${ast.body}/${ast.flags || ''}`;
+  }
+
+  visitArrowFunction(ast: expr.ArrowFunction, context: any) {
+    let params: string;
+
+    if (ast.parameters.length === 1) {
+      params = ast.parameters[0].name;
+    } else {
+      params = `(${ast.parameters.map((e) => e.name).join(', ')})`;
+    }
+
+    return `${params} => ${ast.body.visit(this, context)}`;
   }
 
   visitASTWithSource(ast: expr.ASTWithSource, context: any): string {
     return ast.ast.visit(this, context);
+  }
+
+  visitTemplateLiteral(ast: expr.TemplateLiteral, context: any) {
+    let result = '';
+    for (let i = 0; i < ast.elements.length; i++) {
+      result += ast.elements[i].visit(this, context);
+      const expression = i < ast.expressions.length ? ast.expressions[i] : null;
+      if (expression !== null) {
+        result += '${' + expression.visit(this, context) + '}';
+      }
+    }
+    return '`' + result + '`';
+  }
+
+  visitTemplateLiteralElement(ast: expr.TemplateLiteralElement, context: any) {
+    return ast.text;
+  }
+
+  visitTaggedTemplateLiteral(ast: expr.TaggedTemplateLiteral, context: any) {
+    return ast.tag.visit(this, context) + ast.template.visit(this, context);
+  }
+
+  visitSpreadElement(ast: expr.SpreadElement, context: any) {
+    return `...${ast.expression.visit(this, context)}`;
+  }
+
+  visitParenthesizedExpression(ast: expr.ParenthesizedExpression, context: any) {
+    return '(' + ast.expression.visit(this, context) + ')';
   }
 }
 

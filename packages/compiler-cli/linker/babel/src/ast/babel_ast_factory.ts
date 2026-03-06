@@ -16,12 +16,12 @@ import {
   SourceMapRange,
   TemplateLiteral,
   VariableDeclarationType,
-} from '../../../../src/ngtsc/translator';
+} from '../../../../src/ngtsc/translator/src/api/ast_factory';
 
 /**
  * A Babel flavored implementation of the AstFactory.
  */
-export class BabelAstFactory implements AstFactory<t.Statement, t.Expression> {
+export class BabelAstFactory implements AstFactory<t.Statement, t.Expression | t.SpreadElement> {
   constructor(
     /** The absolute path to the source file being compiled. */
     private sourceUrl: string,
@@ -37,9 +37,13 @@ export class BabelAstFactory implements AstFactory<t.Statement, t.Expression> {
 
   createArrayLiteral = t.arrayExpression;
 
-  createAssignment(target: t.Expression, value: t.Expression): t.Expression {
+  createAssignment(
+    target: t.Expression,
+    operator: BinaryOperator,
+    value: t.Expression,
+  ): t.Expression {
     assert(target, isLExpression, 'must be a left hand side expression');
-    return t.assignmentExpression('=', target, value);
+    return t.assignmentExpression(operator, target, value);
   }
 
   createBinaryExpression(
@@ -52,6 +56,17 @@ export class BabelAstFactory implements AstFactory<t.Statement, t.Expression> {
       case '||':
       case '??':
         return t.logicalExpression(operator, leftOperand, rightOperand);
+      case '=':
+      case '+=':
+      case '-=':
+      case '*=':
+      case '/=':
+      case '%=':
+      case '**=':
+      case '&&=':
+      case '||=':
+      case '??=':
+        throw new Error(`Unexpected assignment operator ${operator}`);
       default:
         return t.binaryExpression(operator, leftOperand, rightOperand);
     }
@@ -59,7 +74,11 @@ export class BabelAstFactory implements AstFactory<t.Statement, t.Expression> {
 
   createBlock = t.blockStatement;
 
-  createCallExpression(callee: t.Expression, args: t.Expression[], pure: boolean): t.Expression {
+  createCallExpression(
+    callee: t.Expression,
+    args: (t.Expression | t.SpreadElement)[],
+    pure: boolean,
+  ): t.Expression {
     const call = t.callExpression(callee, args);
     if (pure) {
       t.addComment(call, 'leading', ' @__PURE__ ', /* line */ false);
@@ -74,6 +93,10 @@ export class BabelAstFactory implements AstFactory<t.Statement, t.Expression> {
   }
 
   createExpressionStatement = t.expressionStatement;
+
+  createSpreadElement(expression: t.Expression): t.SpreadElement {
+    return t.spreadElement(expression);
+  }
 
   createFunctionDeclaration(
     functionName: string,
@@ -143,11 +166,17 @@ export class BabelAstFactory implements AstFactory<t.Statement, t.Expression> {
     }
   }
 
-  createNewExpression = t.newExpression;
+  createNewExpression(expression: t.Expression, args: t.Expression[]): t.Expression {
+    return t.newExpression(expression, args);
+  }
 
   createObjectLiteral(properties: ObjectLiteralProperty<t.Expression>[]): t.Expression {
     return t.objectExpression(
       properties.map((prop) => {
+        if (prop.kind === 'spread') {
+          return t.spreadElement(prop.expression);
+        }
+
         const key = prop.quoted
           ? t.stringLiteral(prop.propertyName)
           : t.identifier(prop.propertyName);
@@ -162,22 +191,32 @@ export class BabelAstFactory implements AstFactory<t.Statement, t.Expression> {
     return t.memberExpression(expression, t.identifier(propertyName), /* computed */ false);
   }
 
-  createReturnStatement = t.returnStatement;
+  createReturnStatement(expression: t.Expression | null): t.Statement {
+    return t.returnStatement(expression);
+  }
 
   createTaggedTemplate(tag: t.Expression, template: TemplateLiteral<t.Expression>): t.Expression {
+    return t.taggedTemplateExpression(tag, this.createTemplateLiteral(template));
+  }
+
+  createTemplateLiteral(template: TemplateLiteral<t.Expression>): t.TemplateLiteral {
     const elements = template.elements.map((element, i) =>
       this.setSourceMapRange(
         t.templateElement(element, i === template.elements.length - 1),
         element.range,
       ),
     );
-    return t.taggedTemplateExpression(tag, t.templateLiteral(elements, template.expressions));
+    return t.templateLiteral(elements, template.expressions);
   }
 
   createThrowStatement = t.throwStatement;
 
   createTypeOfExpression(expression: t.Expression): t.Expression {
     return t.unaryExpression('typeof', expression);
+  }
+
+  createVoidExpression(expression: t.Expression): t.Expression {
+    return t.unaryExpression('void', expression);
   }
 
   createUnaryExpression = t.unaryExpression;
@@ -192,7 +231,11 @@ export class BabelAstFactory implements AstFactory<t.Statement, t.Expression> {
     ]);
   }
 
-  setSourceMapRange<T extends t.Statement | t.Expression | t.TemplateElement>(
+  createRegularExpressionLiteral(body: string, flags: string | null): t.Expression {
+    return t.regExpLiteral(body, flags ?? undefined);
+  }
+
+  setSourceMapRange<T extends t.Statement | t.Expression | t.TemplateElement | t.SpreadElement>(
     node: T,
     sourceMapRange: SourceMapRange | null,
   ): T {

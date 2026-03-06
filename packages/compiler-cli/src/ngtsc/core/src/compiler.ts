@@ -65,7 +65,7 @@ import {
 import {SemanticSymbol} from '../../incremental/semantic_graph';
 import {generateAnalysis, IndexedComponent, IndexingContext} from '../../indexer';
 import {
-  ComponentResources,
+  DirectiveResources,
   CompoundMetadataReader,
   CompoundMetadataRegistry,
   DirectiveMeta,
@@ -95,6 +95,7 @@ import {
   CompoundComponentScopeReader,
   LocalModuleScopeRegistry,
   MetadataDtsModuleScopeResolver,
+  SelectorlessComponentScopeReader,
   TypeCheckScopeRegistry,
 } from '../../scope';
 import {StandaloneComponentScopeReader} from '../../scope/src/standalone';
@@ -106,6 +107,7 @@ import {
   DtsTransformRegistry,
   ivyTransformFactory,
   TraitCompiler,
+  signalMetadataTransform,
 } from '../../transform';
 import {TemplateTypeCheckerImpl} from '../../typecheck';
 import {OptimizeFor, TemplateTypeChecker, TypeCheckingConfig} from '../../typecheck/api';
@@ -122,10 +124,10 @@ import {SourceFileValidator} from '../../validation';
 import {Xi18nContext} from '../../xi18n';
 import {DiagnosticCategoryLabel, NgCompilerAdapter, NgCompilerOptions} from '../api';
 
-import {coreHasSymbol} from './core_version';
 import {coreVersionSupportsFeature} from './feature_detection';
 import {angularJitApplicationTransform} from '../../transform/jit';
 import {untagAllTsFiles} from '../../shims';
+import {DOC_PAGE_BASE_URL} from '../../diagnostics/src/error_details_base_url';
 
 /**
  * State information about a compilation which is only generated once some data is requested from
@@ -392,6 +394,8 @@ export class NgCompiler {
   private readonly angularCoreVersion: string | null;
   private readonly enableHmr: boolean;
   private readonly implicitStandaloneValue: boolean;
+  private readonly enableSelectorless: boolean;
+  private readonly emitDeclarationOnly: boolean;
 
   /**
    * `NgCompiler` can be reused for multiple compilations (for resource-only changes), and each
@@ -461,9 +465,15 @@ export class NgCompiler {
     this.usePoisonedData = usePoisonedData || !!options._compilePoisonedComponents;
     this.enableTemplateTypeChecker =
       enableTemplateTypeChecker || !!options._enableTemplateTypeChecker;
-    // TODO(crisbeto): remove this flag and base `enableBlockSyntax` on the `angularCoreVersion`.
-    this.enableBlockSyntax = options['_enableBlockSyntax'] ?? true;
-    this.enableLetSyntax = options['_enableLetSyntax'] ?? true;
+    this.enableBlockSyntax =
+      this.angularCoreVersion === null ||
+      coreVersionSupportsFeature(this.angularCoreVersion, '>= 17.0.0');
+    this.enableLetSyntax =
+      this.angularCoreVersion === null ||
+      coreVersionSupportsFeature(this.angularCoreVersion, '>= 18.1.0');
+    this.enableSelectorless = options['_enableSelectorless'] ?? false;
+    this.emitDeclarationOnly =
+      !!options.emitDeclarationOnly && !!options._experimentalAllowEmitDeclarationOnly;
     // Standalone by default is enabled since v19. We need to toggle it here,
     // because the language service extension may be running with the latest
     // version of the compiler against an older version of Angular.
@@ -474,6 +484,7 @@ export class NgCompiler {
     this.constructionDiagnostics.push(
       ...this.adapter.constructionDiagnostics,
       ...verifyCompatibleTypeCheckOptions(this.options),
+      ...verifyEmitDeclarationOnly(this.options),
     );
 
     this.currentProgram = inputProgram;
@@ -661,7 +672,7 @@ export class NgCompiler {
   }
 
   /**
-   * Add Angular.io error guide links to diagnostics for this compilation.
+   * Add https://angular.dev/errors error guide links to diagnostics for this compilation.
    */
   private addMessageTextDetails(diagnostics: ts.Diagnostic[]): ts.Diagnostic[] {
     return diagnostics.map((diag) => {
@@ -729,20 +740,17 @@ export class NgCompiler {
   }
 
   /**
-   * Retrieves external resources for the given component.
+   * Retrieves external resources for the given directive.
    */
-  getComponentResources(classDecl: DeclarationNode): ComponentResources | null {
+  getDirectiveResources(classDecl: DeclarationNode): DirectiveResources | null {
     if (!isNamedClassDeclaration(classDecl)) {
       return null;
     }
     const {resourceRegistry} = this.ensureAnalyzed();
     const styles = resourceRegistry.getStyles(classDecl);
     const template = resourceRegistry.getTemplate(classDecl);
-    if (template === null) {
-      return null;
-    }
-
-    return {styles, template};
+    const hostBindings = resourceRegistry.getHostBindings(classDecl);
+    return {styles, template, hostBindings};
   }
 
   getMeta(classDecl: DeclarationNode): PipeMeta | DirectiveMeta | null {
@@ -817,7 +825,7 @@ export class NgCompiler {
 
     const defaultImportTracker = new DefaultImportTracker();
 
-    const before = [
+    const before: ts.TransformerFactory<ts.SourceFile>[] = [
       ivyTransformFactory(
         compilation.traitCompiler,
         compilation.reflector,
@@ -827,6 +835,9 @@ export class NgCompiler {
         this.delegatingPerfRecorder,
         compilation.isCore,
         this.closureCompilerEnabled,
+        this.emitDeclarationOnly,
+        compilation.refEmitter,
+        !!this.options['_experimentalEmitIntermediateTs'],
       ),
       aliasTransformFactory(compilation.traitCompiler.exportStatements),
       defaultImportTracker.importPreservingTransformer(),
@@ -856,7 +867,7 @@ export class NgCompiler {
           },
         )(ctx);
 
-        return (sourceFile) => {
+        return (sourceFile: ts.SourceFile) => {
           if (!sourceFilesWithJit.has(sourceFile.fileName)) {
             return sourceFile;
           }
@@ -865,14 +876,23 @@ export class NgCompiler {
       });
     }
 
+    // Typescript transformer to add debugName metadata to signal functions.
+    before.push(signalMetadataTransform(this.inputProgram));
+
     const afterDeclarations: ts.TransformerFactory<ts.SourceFile>[] = [];
 
     // In local compilation mode we don't make use of .d.ts files for Angular compilation, so their
     // transformation can be ditched.
     if (
-      this.options.compilationMode !== 'experimental-local' &&
+      (this.options.compilationMode !== 'experimental-local' || this.emitDeclarationOnly) &&
       compilation.dtsTransforms !== null
     ) {
+      // If we are emitting declarations only, the script transformations are skipped by the TS
+      // compiler, so we have to add them to the afterDeclarations transforms to run their analysis
+      // because the declaration transform depends on their metadata output.
+      if (this.emitDeclarationOnly) {
+        afterDeclarations.push(...before);
+      }
       afterDeclarations.push(
         declarationTransformFactory(
           compilation.dtsTransforms,
@@ -969,7 +989,15 @@ export class NgCompiler {
     const nodeText = printer.printNode(ts.EmitHint.Unspecified, callback, sourceFile);
 
     return ts.transpileModule(nodeText, {
-      compilerOptions: this.options,
+      compilerOptions: {
+        ...this.options,
+
+        // Some module types can produce additional code (see #60795) whereas we need the
+        // HMR update module to use a native `export`. Override the `target` and `module`
+        // to ensure that it looks as expected.
+        module: ts.ModuleKind.ES2022,
+        target: ts.ScriptTarget.ES2022,
+      } as ts.CompilerOptions,
       fileName: sourceFile.fileName,
       reportDiagnostics: false,
     }).outputText;
@@ -1030,14 +1058,15 @@ export class NgCompiler {
     const checkTwoWayBoundEvents = this.options['_checkTwoWayBoundEvents'] ?? false;
 
     // Check whether the loaded version of `@angular/core` in the `ts.Program` supports unwrapping
-    // writable signals for type-checking. If this check fails to find a suitable .d.ts file, fall
-    // back to version detection. Only Angular versions greater than 17.2 have the necessary symbols
-    // to type check signals in two-way bindings. We also allow version 0.0.0 in case somebody is
+    // writable signals for type-checking. Only Angular versions greater than 17.2 have the necessary
+    // symbols to type check signals in two-way bindings. We also allow version 0.0.0 in case somebody is
     // using Angular at head.
-    let allowSignalsInTwoWayBindings =
-      coreHasSymbol(this.inputProgram, R3Identifiers.unwrapWritableSignal) ??
-      (this.angularCoreVersion === null ||
-        coreVersionSupportsFeature(this.angularCoreVersion, '>= 17.2.0'));
+    const allowSignalsInTwoWayBindings =
+      this.angularCoreVersion === null ||
+      coreVersionSupportsFeature(this.angularCoreVersion, '>= 17.2.0-0');
+    const allowDomEventAssertion =
+      this.angularCoreVersion === null ||
+      coreVersionSupportsFeature(this.angularCoreVersion, '>= 20.2.0');
 
     // First select a type-checking configuration, based on whether full template type-checking is
     // requested.
@@ -1082,6 +1111,7 @@ export class NgCompiler {
           this.options.extendedDiagnostics?.defaultCategory || DiagnosticCategoryLabel.Warning,
         allowSignalsInTwoWayBindings,
         checkTwoWayBoundEvents,
+        allowDomEventAssertion,
       };
     } else {
       typeCheckingConfig = {
@@ -1117,6 +1147,7 @@ export class NgCompiler {
           this.options.extendedDiagnostics?.defaultCategory || DiagnosticCategoryLabel.Warning,
         allowSignalsInTwoWayBindings,
         checkTwoWayBoundEvents,
+        allowDomEventAssertion,
       };
     }
 
@@ -1261,7 +1292,8 @@ export class NgCompiler {
   }
 
   private makeCompilation(): LazyCompilationState {
-    const isCore = isAngularCorePackage(this.inputProgram);
+    const isCore =
+      this.options._isAngularCoreCompilation ?? isAngularCorePackage(this.inputProgram);
 
     // Note: If this compilation builds `@angular/core`, we always build in full compilation
     // mode. Code inside the core package is always compatible with itself, so it does not
@@ -1279,6 +1311,9 @@ export class NgCompiler {
           compilationMode = CompilationMode.LOCAL;
           break;
       }
+    }
+    if (this.emitDeclarationOnly) {
+      compilationMode = CompilationMode.LOCAL;
     }
 
     const checker = this.inputProgram.getTypeChecker();
@@ -1303,10 +1338,7 @@ export class NgCompiler {
       // namespace" and the logic of `LogicalProjectStrategy` is required to generate correct
       // imports which may cross these multiple directories. Otherwise, plain relative imports are
       // sufficient.
-      if (
-        this.options.rootDir !== undefined ||
-        (this.options.rootDirs !== undefined && this.options.rootDirs.length > 0)
-      ) {
+      if (this.options.rootDirs !== undefined && this.options.rootDirs.length > 0) {
         // rootDirs logic is in effect - use the `LogicalProjectStrategy` for in-project relative
         // imports.
         localImportStrategy = new LogicalProjectStrategy(
@@ -1378,8 +1410,10 @@ export class NgCompiler {
       ngModuleScopeRegistry,
       depScopeReader,
     );
+    const selectorlessScopeReader = new SelectorlessComponentScopeReader(metaReader, reflector);
     const scopeReader: ComponentScopeReader = new CompoundComponentScopeReader([
       ngModuleScopeRegistry,
+      selectorlessScopeReader,
       standaloneScopeReader,
     ]);
     const semanticDepGraphUpdater = this.incrementalCompilation.semanticDepGraphUpdater;
@@ -1433,6 +1467,7 @@ export class NgCompiler {
     const supportJitMode = this.options['supportJitMode'] ?? true;
     const supportTestBed = this.options['supportTestBed'] ?? true;
     const externalRuntimeStyles = this.options['externalRuntimeStyles'] ?? false;
+    const typeCheckHostBindings = this.options.typeCheckHostBindings ?? true;
 
     // Libraries compiled in partial mode could potentially be used with TestBed within an
     // application. Since this is not known at library compilation time, support is required to
@@ -1505,6 +1540,9 @@ export class NgCompiler {
         !!this.options.strictStandalone,
         this.enableHmr,
         this.implicitStandaloneValue,
+        typeCheckHostBindings,
+        this.enableSelectorless,
+        this.emitDeclarationOnly,
       ),
 
       // TODO(alxhub): understand why the cast here is necessary (something to do with `null`
@@ -1525,10 +1563,15 @@ export class NgCompiler {
         this.delegatingPerfRecorder,
         importTracker,
         supportTestBed,
+        typeCheckScopeRegistry,
         compilationMode,
         jitDeclarationRegistry,
+        resourceRegistry,
         !!this.options.strictStandalone,
         this.implicitStandaloneValue,
+        this.usePoisonedData,
+        typeCheckHostBindings,
+        this.emitDeclarationOnly,
       ) as Readonly<DecoratorHandler<unknown, unknown, SemanticSymbol | null, unknown>>,
       // Pipe handler must be before injectable handler in list so pipe factories are printed
       // before injectable factories (so injectable factories can delegate to them)
@@ -1576,6 +1619,7 @@ export class NgCompiler {
         compilationMode,
         localCompilationExtraImportsTracker,
         jitDeclarationRegistry,
+        this.emitDeclarationOnly,
       ),
     ];
 
@@ -1589,6 +1633,8 @@ export class NgCompiler {
       dtsTransforms,
       semanticDepGraphUpdater,
       this.adapter,
+      this.emitDeclarationOnly,
+      !!this.options['_experimentalEmitIntermediateTs'],
     );
 
     // Template type-checking may use the `ProgramDriver` to produce new `ts.Program`(s). If this
@@ -1735,7 +1781,7 @@ One of the following actions is required:
 2. Remove "strictTemplates" or set it to 'false'.
 
 More information about the template type checking compiler options can be found in the documentation:
-https://angular.dev/tools/cli/template-typecheck
+${DOC_PAGE_BASE_URL}/tools/cli/template-typecheck
       `.trim(),
     });
   }
@@ -1798,6 +1844,19 @@ ${allowedCategoryLabels.join('\n')}
       });
     }
   }
+}
+
+function verifyEmitDeclarationOnly(options: NgCompilerOptions): ts.Diagnostic[] {
+  if (!options.emitDeclarationOnly || !!options._experimentalAllowEmitDeclarationOnly) {
+    return [];
+  }
+  return [
+    makeConfigDiagnostic({
+      category: ts.DiagnosticCategory.Error,
+      code: ErrorCode.CONFIG_EMIT_DECLARATION_ONLY_UNSUPPORTED,
+      messageText: 'TS compiler option "emitDeclarationOnly" is not supported.',
+    }),
+  ];
 }
 
 function makeConfigDiagnostic({

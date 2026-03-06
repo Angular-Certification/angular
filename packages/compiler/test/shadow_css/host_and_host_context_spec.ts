@@ -71,6 +71,9 @@ describe('ShadowCss, :host and :host-context', () => {
       expect(shim(':host:nth-child(8n+1) {}', 'contenta', 'a-host')).toEqualCss(
         '[a-host]:nth-child(8n+1) {}',
       );
+      expect(shim(':host(:nth-child(3n of :not(p, a))) {}', 'contenta', 'a-host')).toEqualCss(
+        '[a-host]:nth-child(3n of :not(p, a)) {}',
+      );
       expect(shim(':host:nth-of-type(8n+1) {}', 'contenta', 'a-host')).toEqualCss(
         '[a-host]:nth-of-type(8n+1) {}',
       );
@@ -82,6 +85,9 @@ describe('ShadowCss, :host and :host-context', () => {
       );
       expect(shim(':host(:not(p)):before {}', 'contenta', 'a-host')).toEqualCss(
         '[a-host]:not(p):before {}',
+      );
+      expect(shim(':host(:not(:has(p))) {}', 'contenta', 'a-host')).toEqualCss(
+        '[a-host]:not(:has(p)) {}',
       );
       expect(shim(':host:not(:host.foo) {}', 'contenta', 'a-host')).toEqualCss(
         '[a-host]:not([a-host].foo) {}',
@@ -97,6 +103,15 @@ describe('ShadowCss, :host and :host-context', () => {
       );
       expect(shim(':host:not(.foo, .bar) {}', 'contenta', 'a-host')).toEqualCss(
         '[a-host]:not(.foo, .bar) {}',
+      );
+      expect(shim(':host:not(:has(p, a)) {}', 'contenta', 'a-host')).toEqualCss(
+        '[a-host]:not(:has(p, a)) {}',
+      );
+      expect(shim(':host(:not(.foo, .bar)) {}', 'contenta', 'a-host')).toEqualCss(
+        '[a-host]:not(.foo, .bar) {}',
+      );
+      expect(shim(':host:has(> child-element:not(.foo)) {}', 'contenta', 'a-host')).toEqualCss(
+        '[a-host]:has(> child-element:not(.foo)) {}',
       );
     });
 
@@ -166,6 +181,20 @@ describe('ShadowCss, :host and :host-context', () => {
       );
       expect(shim('div:where(:host-context(backdrop)) :host {}', 'contenta', 'hosta')).toEqualCss(
         'div:where(backdrop) [hosta] {}',
+      );
+    });
+
+    it('should transform :host-context with nested pseudo selectors', () => {
+      expect(shim(':host-context(:where(.foo:not(.bar))) {}', 'contenta', 'hosta')).toEqualCss(
+        ':where(.foo:not(.bar))[hosta], :where(.foo:not(.bar)) [hosta] {}',
+      );
+      expect(shim(':host-context(:is(.foo:not(.bar))) {}', 'contenta', 'hosta')).toEqualCss(
+        ':is(.foo:not(.bar))[hosta], :is(.foo:not(.bar)) [hosta] {}',
+      );
+      expect(
+        shim(':host-context(:where(.foo:not(.bar, .baz))) .inner {}', 'contenta', 'hosta'),
+      ).toEqualCss(
+        ':where(.foo:not(.bar, .baz))[hosta] .inner[contenta], :where(.foo:not(.bar, .baz)) [hosta] .inner[contenta] {}',
       );
     });
 
@@ -243,6 +272,9 @@ describe('ShadowCss, :host and :host-context', () => {
       expect(shim(':host-context() .inner {}', 'contenta', 'a-host')).toEqualCss(
         '[a-host] .inner[contenta] {}',
       );
+      expect(shim(':host-context :host-context(.a) {}', 'contenta', 'host-a')).toEqualCss(
+        '.a[host-a], .a [host-a] {}',
+      );
     });
 
     // More than one selector such as this is not valid as part of the :host-context spec.
@@ -255,6 +287,23 @@ describe('ShadowCss, :host and :host-context', () => {
           '.two[a-host] .inner[contenta], ' +
           '.two [a-host] .inner[contenta] ' +
           '{}',
+      );
+    });
+
+    it('should handle :host-context with comma-separated child selector', () => {
+      expect(shim(':host-context(.foo) a:not(.a, .b) {}', 'contenta', 'a-host')).toEqualCss(
+        '.foo[a-host] a[contenta]:not(.a, .b), .foo [a-host] a[contenta]:not(.a, .b) {}',
+      );
+      expect(
+        shim(
+          ':host-context(.foo) a:not([a], .b), .bar, :host-context(.baz) a:not([c], .d) {}',
+          'contenta',
+          'a-host',
+        ),
+      ).toEqualCss(
+        '.foo[a-host] a[contenta]:not([a], .b), .foo [a-host] a[contenta]:not([a], .b), ' +
+          '.bar[contenta], .baz[a-host] a[contenta]:not([c], .d), ' +
+          '.baz [a-host] a[contenta]:not([c], .d) {}',
       );
     });
   });

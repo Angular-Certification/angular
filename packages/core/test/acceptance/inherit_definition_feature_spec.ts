@@ -17,15 +17,21 @@ import {
   Input,
   OnChanges,
   Output,
+  provideZoneChangeDetection,
   QueryList,
   ViewChildren,
-} from '@angular/core';
-import {getDirectiveDef} from '@angular/core/src/render3/def_getters';
-import {TestBed} from '@angular/core/testing';
+} from '../../src/core';
+import {getDirectiveDef} from '../../src/render3/def_getters';
+import {TestBed} from '../../testing';
 import {By} from '@angular/platform-browser';
 import {NoopAnimationsModule} from '@angular/platform-browser/animations';
 
 describe('inheritance', () => {
+  beforeEach(() => {
+    TestBed.configureTestingModule({
+      providers: [provideZoneChangeDetection()],
+    });
+  });
   it('should throw when trying to inherit a component from a directive', () => {
     @Component({
       selector: 'my-comp',
@@ -794,16 +800,14 @@ describe('inheritance', () => {
         }
 
         @Directive({
-          standalone: true,
           selector: 'dir',
           inputs: ['someInput'],
         })
         class ActualDir extends Base {}
 
         @Component({
-          standalone: true,
           imports: [ActualDir],
-          template: `<dir someInput="newValue">`,
+          template: `<dir someInput="newValue"></dir>`,
         })
         class TestCmp {}
 
@@ -825,15 +829,13 @@ describe('inheritance', () => {
         }
 
         @Directive({
-          standalone: true,
           selector: 'dir',
         })
         class ActualDir extends Base {}
 
         @Component({
-          standalone: true,
           imports: [ActualDir],
-          template: `<dir publicName="newValue">`,
+          template: `<dir publicName="newValue"></dir>`,
         })
         class TestCmp {}
 
@@ -870,9 +872,7 @@ describe('inheritance', () => {
         }
 
         @Component({
-          template: `
-        <div sub-dir (foo)="handleFoo($event)"></div>
-      `,
+          template: ` <div sub-dir (foo)="handleFoo($event)"></div> `,
           standalone: false,
         })
         class App {
@@ -911,9 +911,7 @@ describe('inheritance', () => {
         class SubDirective extends SuperDirective {}
 
         @Component({
-          template: `
-          <p sub-dir>test</p>
-        `,
+          template: ` <p sub-dir>test</p> `,
           standalone: false,
         })
         class App {}
@@ -950,9 +948,7 @@ describe('inheritance', () => {
         })
         class SubDirective extends SuperDirective {}
         @Component({
-          template: `
-        <p sub-dir superTitle="test">test</p>
-      `,
+          template: ` <p sub-dir superTitle="test">test</p> `,
           standalone: false,
         })
         class App {}
@@ -996,11 +992,11 @@ describe('inheritance', () => {
 
         @Component({
           template: `
-        <ul sub-dir>
-          <li child-dir>one</li>
-          <li child-dir>two</li>
-        </ul>
-      `,
+            <ul sub-dir>
+              <li child-dir>one</li>
+              <li child-dir>two</li>
+            </ul>
+          `,
           standalone: false,
         })
         class App {}
@@ -1445,9 +1441,7 @@ describe('inheritance', () => {
         }
 
         @Component({
-          template: `
-        <div sub-dir (foo)="handleFoo($event)"></div>
-      `,
+          template: ` <div sub-dir (foo)="handleFoo($event)"></div> `,
           standalone: false,
         })
         class App {
@@ -1490,9 +1484,7 @@ describe('inheritance', () => {
         class SubDirective extends SuperDirective {}
 
         @Component({
-          template: `
-        <p sub-dir>test</p>
-      `,
+          template: ` <p sub-dir>test</p> `,
           standalone: false,
         })
         class App {}
@@ -1533,9 +1525,7 @@ describe('inheritance', () => {
         })
         class SubDirective extends SuperDirective {}
         @Component({
-          template: `
-        <p sub-dir superTitle="test">test</p>
-      `,
+          template: ` <p sub-dir superTitle="test">test</p> `,
           standalone: false,
         })
         class App {}
@@ -1580,11 +1570,11 @@ describe('inheritance', () => {
 
       @Component({
         template: `
-        <ul sub-dir>
-          <li child-dir>one</li>
-          <li child-dir>two</li>
-        </ul>
-      `,
+          <ul sub-dir>
+            <li child-dir>one</li>
+            <li child-dir>two</li>
+          </ul>
+        `,
         standalone: false,
       })
       class App {}
@@ -2037,9 +2027,7 @@ describe('inheritance', () => {
         }
 
         @Component({
-          template: `
-          <div sub-dir (foo)="handleFoo($event)" (bar)="handleBar($event)"></div>
-        `,
+          template: ` <div sub-dir (foo)="handleFoo($event)" (bar)="handleBar($event)"></div> `,
           standalone: false,
         })
         class App {
@@ -2091,9 +2079,7 @@ describe('inheritance', () => {
         class SubDirective extends SuperDirective {}
 
         @Component({
-          template: `
-          <p sub-dir>test</p>
-        `,
+          template: ` <p sub-dir>test</p> `,
           standalone: false,
         })
         class App {}
@@ -2143,9 +2129,7 @@ describe('inheritance', () => {
         })
         class SubDirective extends SuperDirective {}
         @Component({
-          template: `
-        <p sub-dir superTitle="test1" superAccessKey="test2">test</p>
-      `,
+          template: ` <p sub-dir superTitle="test1" superAccessKey="test2">test</p> `,
           standalone: false,
         })
         class App {}
@@ -2205,12 +2189,12 @@ describe('inheritance', () => {
 
       @Component({
         template: `
-        <ul sub-dir>
-          <li child-dir-one child-dir-two>one</li>
-          <li child-dir-one>two</li>
-          <li child-dir-two>three</li>
-        </ul>
-      `,
+          <ul sub-dir>
+            <li child-dir-one child-dir-two>one</li>
+            <li child-dir-one>two</li>
+            <li child-dir-two>three</li>
+          </ul>
+        `,
         standalone: false,
       })
       class App {}
@@ -2650,9 +2634,7 @@ describe('inheritance', () => {
         }
 
         @Component({
-          template: `
-          <my-comp (foo)="handleFoo($event)"></my-comp>
-        `,
+          template: ` <my-comp (foo)="handleFoo($event)"></my-comp> `,
           standalone: false,
         })
         class App {
@@ -2692,9 +2674,7 @@ describe('inheritance', () => {
         class MyComponent extends SuperComponent {}
 
         @Component({
-          template: `
-          <my-comp>test</my-comp>
-        `,
+          template: ` <my-comp>test</my-comp> `,
           standalone: false,
         })
         class App {}
@@ -2732,9 +2712,7 @@ describe('inheritance', () => {
         })
         class MyComponent extends SuperComponent {}
         @Component({
-          template: `
-        <my-comp superTitle="test">test</my-comp>
-      `,
+          template: ` <my-comp superTitle="test">test</my-comp> `,
           standalone: false,
         })
         class App {}
@@ -2765,7 +2743,9 @@ describe('inheritance', () => {
 
       @Component({
         selector: 'my-comp',
-        template: `<ul><ng-content></ng-content></ul>`,
+        template: `<ul>
+          <ng-content></ng-content>
+        </ul>`,
         standalone: false,
       })
       class MyComponent extends SuperComponent {
@@ -2776,11 +2756,11 @@ describe('inheritance', () => {
 
       @Component({
         template: `
-        <my-comp>
-          <li child-dir>one</li>
-          <li child-dir>two</li>
-        </my-comp>
-      `,
+          <my-comp>
+            <li child-dir>one</li>
+            <li child-dir>two</li>
+          </my-comp>
+        `,
         standalone: false,
       })
       class App {}
@@ -3232,9 +3212,7 @@ describe('inheritance', () => {
         }
 
         @Component({
-          template: `
-          <my-comp (foo)="handleFoo($event)"></my-comp>
-        `,
+          template: ` <my-comp (foo)="handleFoo($event)"></my-comp> `,
           standalone: false,
         })
         class App {
@@ -3278,9 +3256,7 @@ describe('inheritance', () => {
         class MyComponent extends SuperDirective {}
 
         @Component({
-          template: `
-          <my-comp>test</my-comp>
-        `,
+          template: ` <my-comp>test</my-comp> `,
           standalone: false,
         })
         class App {}
@@ -3322,9 +3298,7 @@ describe('inheritance', () => {
         })
         class MyComponent extends SuperDirective {}
         @Component({
-          template: `
-        <my-comp superTitle="test">test</my-comp>
-      `,
+          template: ` <my-comp superTitle="test">test</my-comp> `,
           standalone: false,
         })
         class App {}
@@ -3359,7 +3333,9 @@ describe('inheritance', () => {
 
       @Component({
         selector: 'my-comp',
-        template: `<ul><ng-content></ng-content></ul>`,
+        template: `<ul>
+          <ng-content></ng-content>
+        </ul>`,
         standalone: false,
       })
       class MyComponent extends SuperDirective {
@@ -3370,11 +3346,11 @@ describe('inheritance', () => {
 
       @Component({
         template: `
-        <my-comp>
-          <li child-dir>one</li>
-          <li child-dir>two</li>
-        </my-comp>
-      `,
+          <my-comp>
+            <li child-dir>one</li>
+            <li child-dir>two</li>
+          </my-comp>
+        `,
         standalone: false,
       })
       class App {}
@@ -3409,7 +3385,7 @@ describe('inheritance', () => {
         selector: 'my-comp',
         template: `
           <ul>
-            <li child-dir *ngFor="let item of items">{{item}}</li>
+            <li child-dir *ngFor="let item of items">{{ item }}</li>
           </ul>
         `,
         standalone: false,
@@ -3422,9 +3398,7 @@ describe('inheritance', () => {
       }
 
       @Component({
-        template: `
-        <my-comp></my-comp>
-      `,
+        template: ` <my-comp></my-comp> `,
         standalone: false,
       })
       class App {}
@@ -3881,9 +3855,7 @@ describe('inheritance', () => {
         }
 
         @Component({
-          template: `
-          <my-comp (foo)="handleFoo($event)"></my-comp>
-        `,
+          template: ` <my-comp (foo)="handleFoo($event)"></my-comp> `,
           standalone: false,
         })
         class App {
@@ -3929,9 +3901,7 @@ describe('inheritance', () => {
         class MyComponent extends BareClass {}
 
         @Component({
-          template: `
-          <my-comp>test</my-comp>
-        `,
+          template: ` <my-comp>test</my-comp> `,
           standalone: false,
         })
         class App {}
@@ -3982,9 +3952,7 @@ describe('inheritance', () => {
         })
         class MyComponent extends BareClass {}
         @Component({
-          template: `
-          <my-comp superTitle="test1" superAccessKey="test2">test</my-comp>
-        `,
+          template: ` <my-comp superTitle="test1" superAccessKey="test2">test</my-comp> `,
           standalone: false,
         })
         class App {}
@@ -4022,7 +3990,9 @@ describe('inheritance', () => {
 
       @Component({
         selector: 'my-comp',
-        template: `<ul><ng-content></ng-content></ul>`,
+        template: `<ul>
+          <ng-content></ng-content>
+        </ul>`,
         standalone: false,
       })
       class MyComponent extends BareClass {
@@ -4033,11 +4003,11 @@ describe('inheritance', () => {
 
       @Component({
         template: `
-        <my-comp>
-          <li child-dir>one</li>
-          <li child-dir>two</li>
-        </my-comp>
-      `,
+          <my-comp>
+            <li child-dir>one</li>
+            <li child-dir>two</li>
+          </my-comp>
+        `,
         standalone: false,
       })
       class App {}
@@ -4074,7 +4044,7 @@ describe('inheritance', () => {
         selector: 'my-comp',
         template: `
           <ul>
-            <li child-dir *ngFor="let item of items">{{item}}</li>
+            <li child-dir *ngFor="let item of items">{{ item }}</li>
           </ul>
         `,
         standalone: false,
@@ -4087,9 +4057,7 @@ describe('inheritance', () => {
       }
 
       @Component({
-        template: `
-        <my-comp></my-comp>
-      `,
+        template: ` <my-comp></my-comp> `,
         standalone: false,
       })
       class App {}
@@ -4544,9 +4512,7 @@ describe('inheritance', () => {
         }
 
         @Component({
-          template: `
-          <my-comp (foo)="handleFoo($event)"></my-comp>
-        `,
+          template: ` <my-comp (foo)="handleFoo($event)"></my-comp> `,
           standalone: false,
         })
         class App {
@@ -4682,9 +4648,7 @@ describe('inheritance', () => {
         class MyComponent extends SuperComponent {}
 
         @Component({
-          template: `
-          <my-comp>test</my-comp>
-        `,
+          template: ` <my-comp>test</my-comp> `,
           standalone: false,
         })
         class App {}
@@ -4727,9 +4691,7 @@ describe('inheritance', () => {
         })
         class MyComponent extends SuperComponent {}
         @Component({
-          template: `
-        <my-comp superTitle="test">test</my-comp>
-      `,
+          template: ` <my-comp superTitle="test">test</my-comp> `,
           standalone: false,
         })
         class App {}
@@ -4765,7 +4727,9 @@ describe('inheritance', () => {
 
       @Component({
         selector: 'my-comp',
-        template: `<ul><ng-content></ng-content></ul>`,
+        template: `<ul>
+          <ng-content></ng-content>
+        </ul>`,
         standalone: false,
       })
       class MyComponent extends SuperComponent {
@@ -4776,11 +4740,11 @@ describe('inheritance', () => {
 
       @Component({
         template: `
-        <my-comp>
-          <li child-dir>one</li>
-          <li child-dir>two</li>
-        </my-comp>
-      `,
+          <my-comp>
+            <li child-dir>one</li>
+            <li child-dir>two</li>
+          </my-comp>
+        `,
         standalone: false,
       })
       class App {}
@@ -4816,7 +4780,7 @@ describe('inheritance', () => {
         selector: 'my-comp',
         template: `
           <ul>
-            <li child-dir *ngFor="let item of items">{{item}}</li>
+            <li child-dir *ngFor="let item of items">{{ item }}</li>
           </ul>
         `,
         standalone: false,
@@ -4829,9 +4793,7 @@ describe('inheritance', () => {
       }
 
       @Component({
-        template: `
-        <my-comp></my-comp>
-      `,
+        template: ` <my-comp></my-comp> `,
         standalone: false,
       })
       class App {}
@@ -5372,9 +5334,7 @@ describe('inheritance', () => {
         }
 
         @Component({
-          template: `
-          <my-comp (foo)="handleFoo($event)" (bar)="handleBar($event)"></my-comp>
-        `,
+          template: ` <my-comp (foo)="handleFoo($event)" (bar)="handleBar($event)"></my-comp> `,
           standalone: false,
         })
         class App {
@@ -5493,9 +5453,7 @@ describe('inheritance', () => {
         class MyComponent extends SuperComponent {}
 
         @Component({
-          template: `
-          <my-comp>test</my-comp>
-        `,
+          template: ` <my-comp>test</my-comp> `,
           standalone: false,
         })
         class App {}
@@ -5547,9 +5505,7 @@ describe('inheritance', () => {
         })
         class MyComponent extends SuperComponent {}
         @Component({
-          template: `
-          <my-comp superTitle="test1" superAccessKey="test2">test</my-comp>
-        `,
+          template: ` <my-comp superTitle="test1" superAccessKey="test2">test</my-comp> `,
           standalone: false,
         })
         class App {}
@@ -5587,7 +5543,9 @@ describe('inheritance', () => {
 
       @Component({
         selector: 'my-comp',
-        template: `<ul><ng-content></ng-content></ul>`,
+        template: `<ul>
+          <ng-content></ng-content>
+        </ul>`,
         standalone: false,
       })
       class MyComponent extends SuperComponent {
@@ -5598,11 +5556,11 @@ describe('inheritance', () => {
 
       @Component({
         template: `
-        <my-comp>
-          <li child-dir>one</li>
-          <li child-dir>two</li>
-        </my-comp>
-      `,
+          <my-comp>
+            <li child-dir>one</li>
+            <li child-dir>two</li>
+          </my-comp>
+        `,
         standalone: false,
       })
       class App {}
@@ -5638,7 +5596,7 @@ describe('inheritance', () => {
         selector: 'my-comp',
         template: `
           <ul>
-            <li child-dir *ngFor="let item of items">{{item}}</li>
+            <li child-dir *ngFor="let item of items">{{ item }}</li>
           </ul>
         `,
         standalone: false,
@@ -5651,9 +5609,7 @@ describe('inheritance', () => {
       }
 
       @Component({
-        template: `
-        <my-comp></my-comp>
-      `,
+        template: ` <my-comp></my-comp> `,
         standalone: false,
       })
       class App {}

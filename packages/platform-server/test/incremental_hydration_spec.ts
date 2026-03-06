@@ -3,22 +3,45 @@
  * Copyright Google LLC All Rights Reserved.
  *
  * Use of this source code is governed by an MIT-style license that can be
- * found in the LICENSE file at https://angular.io/license
+ * found in the LICENSE file at https://angular.dev/license
  */
 
 import {
   APP_ID,
   ApplicationRef,
   Component,
+  ɵDEHYDRATED_BLOCK_REGISTRY as DEHYDRATED_BLOCK_REGISTRY,
   destroyPlatform,
+  ɵgetDocument as getDocument,
   inject,
-  NgZone,
+  Input,
+  ɵJSACTION_BLOCK_ELEMENT_MAP as JSACTION_BLOCK_ELEMENT_MAP,
+  ɵJSACTION_EVENT_CONTRACT as JSACTION_EVENT_CONTRACT,
+  PendingTasks,
   PLATFORM_ID,
   Provider,
+  QueryList,
+  ɵresetIncrementalHydrationEnabledWarnedForTests as resetIncrementalHydrationEnabledWarnedForTests,
   signal,
+  ɵTimerScheduler as TimerScheduler,
+  ViewChildren,
   ɵDEFER_BLOCK_DEPENDENCY_INTERCEPTOR,
 } from '@angular/core';
 
+import {
+  isPlatformServer,
+  Location,
+  ɵPLATFORM_BROWSER_ID as PLATFORM_BROWSER_ID,
+  PlatformLocation,
+} from '@angular/common';
+import {MockPlatformLocation} from '@angular/common/testing';
+import {TestBed} from '@angular/core/testing';
+import {
+  provideClientHydration,
+  withEventReplay,
+  withIncrementalHydration,
+} from '@angular/platform-browser';
+import {provideRouter, RouterLink, RouterOutlet, Routes} from '@angular/router';
 import {getAppContents, prepareEnvironmentAndHydrate, resetTViewsFor} from './dom_utils';
 import {
   clearConsole,
@@ -31,20 +54,6 @@ import {
   verifyNodeWasNotHydrated,
   withDebugConsole,
 } from './hydration_utils';
-import {getDocument} from '@angular/core/src/render3/interfaces/document';
-import {isPlatformServer, Location, PlatformLocation} from '@angular/common';
-import {
-  provideClientHydration,
-  withEventReplay,
-  withIncrementalHydration,
-} from '@angular/platform-browser';
-import {TestBed} from '@angular/core/testing';
-import {PLATFORM_BROWSER_ID} from '@angular/common/src/platform_id';
-import {DEHYDRATED_BLOCK_REGISTRY} from '@angular/core/src/defer/registry';
-import {JSACTION_BLOCK_ELEMENT_MAP} from '@angular/core/src/hydration/tokens';
-import {JSACTION_EVENT_CONTRACT} from '@angular/core/src/event_delegation_utils';
-import {provideRouter, RouterLink, RouterOutlet, Routes} from '@angular/router';
-import {MockPlatformLocation} from '@angular/common/testing';
 
 /**
  * Emulates a dynamic import promise.
@@ -62,6 +71,15 @@ function dynamicImportOf<T>(type: T, timeout = 0): Promise<T> {
 }
 
 /**
+ * Emulates a failed dynamic import promise.
+ */
+function failedDynamicImport(): Promise<void> {
+  return new Promise((_, reject) => {
+    setTimeout(() => reject());
+  });
+}
+
+/**
  * Helper function to await all pending dynamic imports
  * emulated using `dynamicImportOf` function.
  */
@@ -74,7 +92,7 @@ describe('platform-server partial hydration integration', () => {
 
   beforeAll(async () => {
     globalThis.window = globalThis as unknown as Window & typeof globalThis;
-    await import('@angular/core/primitives/event-dispatch/contract_bundle_min.js' as string);
+    await import('../../core/primitives/event-dispatch/contract_bundle_min.js' as string);
   });
 
   afterAll(() => {
@@ -108,9 +126,9 @@ describe('platform-server partial hydration integration', () => {
           selector: 'dep-b',
           imports: [DepA],
           template: `
-        <dep-a />
-        <button (click)="null">Click B</button>
-      `,
+            <dep-a />
+            <button (click)="(null)">Click B</button>
+          `,
         })
         class DepB {}
 
@@ -118,26 +136,26 @@ describe('platform-server partial hydration integration', () => {
           selector: 'app',
           imports: [DepB],
           template: `
-        <main (click)="fnA()">
-          @defer (on viewport; hydrate on interaction) {
-            <div (click)="fnA()">
-              Main defer block rendered!
-              @if (visible) {
-                Defer events work!
-              }
-              <div id="outer-trigger" (mouseover)="showMessage()"></div>
+            <main (click)="fnA()">
               @defer (on viewport; hydrate on interaction) {
-                <p (click)="fnA()">Nested defer block</p>
-                <dep-b />
+                <div (click)="fnA()">
+                  Main defer block rendered!
+                  @if (visible) {
+                    Defer events work!
+                  }
+                  <div id="outer-trigger" (mouseover)="showMessage()"></div>
+                  @defer (on viewport; hydrate on interaction) {
+                    <p (click)="fnA()">Nested defer block</p>
+                    <dep-b />
+                  } @placeholder {
+                    <span>Inner block placeholder</span>
+                  }
+                </div>
               } @placeholder {
-                <span>Inner block placeholder</span>
+                <span>Outer block placeholder</span>
               }
-            </div>
-          } @placeholder {
-            <span>Outer block placeholder</span>
-          }
-        </main>
-      `,
+            </main>
+          `,
         })
         class SimpleComponent {
           items = [1, 2, 3];
@@ -174,9 +192,9 @@ describe('platform-server partial hydration integration', () => {
           selector: 'dep-b',
           imports: [DepA],
           template: `
-        <dep-a />
-        <button (click)="null">Click B</button>
-      `,
+            <dep-a />
+            <button (click)="(null)">Click B</button>
+          `,
         })
         class DepB {}
 
@@ -184,26 +202,26 @@ describe('platform-server partial hydration integration', () => {
           selector: 'app',
           imports: [DepB],
           template: `
-        <main (click)="fnA()">
-          @defer (on viewport; hydrate on interaction) {
-            <div (click)="fnA()">
-              Main defer block rendered!
-              @if (visible) {
-                Defer events work!
-              }
-              <div id="outer-trigger" (mouseover)="showMessage()"></div>
+            <main (click)="fnA()">
               @defer (on viewport; hydrate on interaction) {
-                <p (click)="fnA()">Nested defer block</p>
-                <dep-b />
+                <div (click)="fnA()">
+                  Main defer block rendered!
+                  @if (visible) {
+                    Defer events work!
+                  }
+                  <div id="outer-trigger" (mouseover)="showMessage()"></div>
+                  @defer (on viewport; hydrate on interaction) {
+                    <p (click)="fnA()">Nested defer block</p>
+                    <dep-b />
+                  } @placeholder {
+                    <span>Inner block placeholder</span>
+                  }
+                </div>
               } @placeholder {
-                <span>Inner block placeholder</span>
+                <span>Outer block placeholder</span>
               }
-            </div>
-          } @placeholder {
-            <span>Outer block placeholder</span>
-          }
-        </main>
-      `,
+            </main>
+          `,
         })
         class SimpleComponent {
           items = [1, 2, 3];
@@ -222,7 +240,7 @@ describe('platform-server partial hydration integration', () => {
         const ssrContents = getAppContents(html);
 
         expect(ssrContents).toContain(
-          '"__nghDeferData__":{"d0":{"p":null,"r":1,"s":2},"d1":{"p":"d0","r":2,"s":2}}',
+          '"__nghDeferData__":{"d0":{"r":1,"s":2},"d1":{"r":2,"s":2,"p":"d0"}}',
         );
       });
 
@@ -237,9 +255,9 @@ describe('platform-server partial hydration integration', () => {
           selector: 'dep-b',
           imports: [DepA],
           template: `
-        <dep-a />
-        <button (click)="null">Click B</button>
-      `,
+            <dep-a />
+            <button (click)="(null)">Click B</button>
+          `,
         })
         class DepB {}
 
@@ -247,26 +265,26 @@ describe('platform-server partial hydration integration', () => {
           selector: 'app',
           imports: [DepB],
           template: `
-        <main (click)="fnA()">
-          @defer (on viewport; hydrate on interaction) {
-            <div (click)="fnA()">
-              Main defer block rendered!
-              @if (visible) {
-                Defer events work!
-              }
-              <div id="outer-trigger" (mouseover)="showMessage()"></div>
-              @defer (on viewport; hydrate on viewport) {
-                <p (click)="fnA()">Nested defer block</p>
-                <dep-b />
+            <main (click)="fnA()">
+              @defer (on viewport; hydrate on interaction) {
+                <div (click)="fnA()">
+                  Main defer block rendered!
+                  @if (visible) {
+                    Defer events work!
+                  }
+                  <div id="outer-trigger" (mouseover)="showMessage()"></div>
+                  @defer (on viewport; hydrate on viewport) {
+                    <p (click)="fnA()">Nested defer block</p>
+                    <dep-b />
+                  } @placeholder {
+                    <span>Inner block placeholder</span>
+                  }
+                </div>
               } @placeholder {
-                <span>Inner block placeholder</span>
+                <span>Outer block placeholder</span>
               }
-            </div>
-          } @placeholder {
-            <span>Outer block placeholder</span>
-          }
-        </main>
-      `,
+            </main>
+          `,
         })
         class SimpleComponent {
           items = [1, 2, 3];
@@ -285,8 +303,37 @@ describe('platform-server partial hydration integration', () => {
         const ssrContents = getAppContents(html);
 
         expect(ssrContents).toContain(
-          '"__nghDeferData__":{"d0":{"p":null,"r":1,"s":2},"d1":{"p":"d0","r":2,"s":2,"t":[2]}}',
+          '"__nghDeferData__":{"d0":{"r":1,"s":2},"d1":{"r":2,"s":2,"t":[2],"p":"d0"}}',
         );
+      });
+
+      it('should not include parent id in serialized data for top-level `@defer` blocks', async () => {
+        @Component({
+          selector: 'app',
+          template: `
+            @defer (on viewport; hydrate on interaction) {
+              Hello world!
+            } @placeholder {
+              <span>Placeholder</span>
+            }
+          `,
+        })
+        class SimpleComponent {}
+
+        const appId = 'custom-app-id';
+        const providers = [{provide: APP_ID, useValue: appId}];
+        const hydrationFeatures = () => [withIncrementalHydration()];
+
+        const html = await ssr(SimpleComponent, {
+          envProviders: providers,
+          hydrationFeatures,
+        });
+
+        const ssrContents = getAppContents(html);
+
+        // Assert that the serialized data doesn't contain the "p" field,
+        // which contains parent id (which is not needed for top-level blocks).
+        expect(ssrContents).toContain('"__nghDeferData__":{"d0":{"r":1,"s":2}}}');
       });
     });
 
@@ -295,25 +342,25 @@ describe('platform-server partial hydration integration', () => {
         @Component({
           selector: 'app',
           template: `
-          <main (click)="fnA()">
-            @defer (on viewport; hydrate on interaction) {
-              <article (click)="fnA()">
-                Main defer block rendered!
-                @if (visible) {
-                  Defer events work!
-                }
-                <aside id="outer-trigger" (mouseover)="showMessage()"></aside>
-                @defer (on viewport; hydrate on interaction) {
-                  <p (click)="fnA()">Nested defer block</p>
-                } @placeholder {
-                  <span>Inner block placeholder</span>
-                }
-              </article>
-            } @placeholder {
-              <span>Outer block placeholder</span>
-            }
-          </main>
-        `,
+            <main (click)="fnA()">
+              @defer (on viewport; hydrate on interaction) {
+                <article (click)="fnA()">
+                  Main defer block rendered!
+                  @if (visible) {
+                    Defer events work!
+                  }
+                  <aside id="outer-trigger" (mouseover)="showMessage()"></aside>
+                  @defer (on viewport; hydrate on interaction) {
+                    <p (click)="fnA()">Nested defer block</p>
+                  } @placeholder {
+                    <span>Inner block placeholder</span>
+                  }
+                </article>
+              } @placeholder {
+                <span>Outer block placeholder</span>
+              }
+            </main>
+          `,
         })
         class SimpleComponent {
           items = [1, 2, 3];
@@ -347,7 +394,7 @@ describe('platform-server partial hydration integration', () => {
         expect(ssrContents).toContain('<p jsaction="click:;keydown:;" ngb="d1');
         // There is an extra annotation in the TransferState data.
         expect(ssrContents).toContain(
-          '"__nghDeferData__":{"d0":{"p":null,"r":1,"s":2},"d1":{"p":"d0","r":1,"s":2}}',
+          '"__nghDeferData__":{"d0":{"r":1,"s":2},"d1":{"r":1,"s":2,"p":"d0"}}',
         );
         // Outer defer block is rendered.
         expect(ssrContents).toContain('Main defer block rendered');
@@ -412,25 +459,25 @@ describe('platform-server partial hydration integration', () => {
         @Component({
           selector: 'app',
           template: `
-          <main (click)="fnA()">
-            @defer (on viewport; hydrate on interaction) {
-              <div (click)="fnA()">
-                Main defer block rendered!
-                @if (visible) {
-                  Defer events work!
-                }
-                <div id="outer-trigger" (mouseover)="showMessage()"></div>
-                @defer (on viewport; hydrate on interaction) {
-                  <p (click)="showMessage()">Nested defer block</p>
-                } @placeholder {
-                  <span>Inner block placeholder</span>
-                }
-              </div>
-            } @placeholder {
-              <span>Outer block placeholder</span>
-            }
-          </main>
-        `,
+            <main (click)="fnA()">
+              @defer (on viewport; hydrate on interaction) {
+                <div (click)="fnA()">
+                  Main defer block rendered!
+                  @if (visible) {
+                    Defer events work!
+                  }
+                  <div id="outer-trigger" (mouseover)="showMessage()"></div>
+                  @defer (on viewport; hydrate on interaction) {
+                    <p (click)="showMessage()">Nested defer block</p>
+                  } @placeholder {
+                    <span>Inner block placeholder</span>
+                  }
+                </div>
+              } @placeholder {
+                <span>Outer block placeholder</span>
+              }
+            </main>
+          `,
         })
         class SimpleComponent {
           items = [1, 2, 3];
@@ -460,7 +507,7 @@ describe('platform-server partial hydration integration', () => {
         expect(ssrContents).toContain('<p jsaction="click:;keydown:;" ngb="d1');
         // There is an extra annotation in the TransferState data.
         expect(ssrContents).toContain(
-          '"__nghDeferData__":{"d0":{"p":null,"r":1,"s":2},"d1":{"p":"d0","r":1,"s":2}}',
+          '"__nghDeferData__":{"d0":{"r":1,"s":2},"d1":{"r":1,"s":2,"p":"d0"}}',
         );
         // Outer defer block is rendered.
         expect(ssrContents).toContain('Main defer block rendered');
@@ -522,25 +569,25 @@ describe('platform-server partial hydration integration', () => {
         @Component({
           selector: 'app',
           template: `
-          <main (click)="fnA()">
-            @defer (hydrate on interaction) {
-              <div (click)="fnA()">
-                Main defer block rendered!
-                @if (visible) {
-                  Defer events work!
-                }
-                <div id="outer-trigger" (mouseover)="showMessage()"></div>
-                @defer (on interaction) {
-                  <p (click)="showMessage()">Nested defer block</p>
-                } @placeholder {
-                  <span>Inner block placeholder</span>
-                }
-              </div>
-            } @placeholder {
-              <span>Outer block placeholder</span>
-            }
-          </main>
-        `,
+            <main (click)="fnA()">
+              @defer (hydrate on interaction) {
+                <div (click)="fnA()">
+                  Main defer block rendered!
+                  @if (visible) {
+                    Defer events work!
+                  }
+                  <div id="outer-trigger" (mouseover)="showMessage()"></div>
+                  @defer (on interaction) {
+                    <p (click)="showMessage()">Nested defer block</p>
+                  } @placeholder {
+                    <span>Inner block placeholder</span>
+                  }
+                </div>
+              } @placeholder {
+                <span>Outer block placeholder</span>
+              }
+            </main>
+          `,
         })
         class SimpleComponent {
           items = [1, 2, 3];
@@ -569,7 +616,7 @@ describe('platform-server partial hydration integration', () => {
         // <p> is inside a nested defer block -> different namespace.
         // expect(ssrContents).toContain('<p jsaction="click:;" ngb="d1');
         // There is an extra annotation in the TransferState data.
-        expect(ssrContents).toContain('"__nghDeferData__":{"d0":{"p":null,"r":1,"s":2}}');
+        expect(ssrContents).toContain('"__nghDeferData__":{"d0":{"r":1,"s":2}}');
         // Outer defer block is rendered.
         expect(ssrContents).toContain('Main defer block rendered');
         // Inner defer block should only display placeholder.
@@ -635,10 +682,134 @@ describe('platform-server partial hydration integration', () => {
       });
     });
 
-    /* TODO: tests to add
+    describe('transfer state for nested defer blocks', () => {
+      it('should have correct transfer state data for 2-level nested defer blocks', async () => {
+        @Component({
+          selector: 'app',
+          template: `
+            @defer (on viewport; hydrate on interaction) {
+              <div>
+                Level 1
+                @defer (on viewport; hydrate on interaction) {
+                  <div>Level 2</div>
+                } @placeholder {
+                  <span>Level 2 placeholder</span>
+                }
+              </div>
+            } @placeholder {
+              <span>Level 1 placeholder</span>
+            }
+          `,
+        })
+        class SimpleComponent {}
 
-      3. transfer state data is correct for parent / child defer blocks
-    */
+        const appId = 'custom-app-id';
+        const providers = [{provide: APP_ID, useValue: appId}];
+        const hydrationFeatures = () => [withIncrementalHydration()];
+
+        const html = await ssr(SimpleComponent, {envProviders: providers, hydrationFeatures});
+        const ssrContents = getAppContents(html);
+
+        // Check that levels are rendered
+        expect(ssrContents).toContain('Level 1');
+        expect(ssrContents).toContain('Level 2');
+
+        // Check the transfer state data
+        expect(ssrContents).toContain(
+          '"__nghDeferData__":{"d0":{"r":1,"s":2},"d1":{"r":1,"s":2,"p":"d0"}}',
+        );
+      });
+
+      it('should have correct transfer state data for 4-level nested defer blocks', async () => {
+        @Component({
+          selector: 'app',
+          template: `
+            @defer (on viewport; hydrate on interaction) {
+              <div>
+                Level 1
+                @defer (on viewport; hydrate on interaction) {
+                  <div>
+                    Level 2
+                    @defer (on viewport; hydrate on interaction) {
+                      <div>
+                        Level 3
+                        @defer (on viewport; hydrate on interaction) {
+                          <div>Level 4</div>
+                        } @placeholder {
+                          <span>Level 4 placeholder</span>
+                        }
+                      </div>
+                    } @placeholder {
+                      <span>Level 3 placeholder</span>
+                    }
+                  </div>
+                } @placeholder {
+                  <span>Level 2 placeholder</span>
+                }
+              </div>
+            } @placeholder {
+              <span>Level 1 placeholder</span>
+            }
+          `,
+        })
+        class SimpleComponent {}
+
+        const appId = 'custom-app-id';
+        const providers = [{provide: APP_ID, useValue: appId}];
+        const hydrationFeatures = () => [withIncrementalHydration()];
+
+        const html = await ssr(SimpleComponent, {envProviders: providers, hydrationFeatures});
+        const ssrContents = getAppContents(html);
+
+        // Check that all levels are rendered
+        expect(ssrContents).toContain('Level 1');
+        expect(ssrContents).toContain('Level 2');
+        expect(ssrContents).toContain('Level 3');
+        expect(ssrContents).toContain('Level 4');
+
+        // Check the transfer state data
+        expect(ssrContents).toContain(
+          '"__nghDeferData__":{"d0":{"r":1,"s":2},"d1":{"r":1,"s":2,"p":"d0"},"d2":{"r":1,"s":2,"p":"d1"},"d3":{"r":1,"s":2,"p":"d2"}}',
+        );
+      });
+
+      it('should have correct transfer state data for nested defer blocks with different triggers', async () => {
+        @Component({
+          selector: 'app',
+          template: `
+            @defer (on viewport; hydrate on interaction) {
+              <div>
+                Level 1
+                @defer (on viewport; hydrate on viewport) {
+                  <div>Level 2</div>
+                } @placeholder {
+                  <span>Level 2 placeholder</span>
+                }
+              </div>
+            } @placeholder {
+              <span>Level 1 placeholder</span>
+            }
+          `,
+        })
+        class SimpleComponent {}
+
+        const appId = 'custom-app-id';
+        const providers = [{provide: APP_ID, useValue: appId}];
+        const hydrationFeatures = () => [withIncrementalHydration()];
+
+        const html = await ssr(SimpleComponent, {envProviders: providers, hydrationFeatures});
+        const ssrContents = getAppContents(html);
+
+        // Check that levels are rendered
+        expect(ssrContents).toContain('Level 1');
+        expect(ssrContents).toContain('Level 2');
+
+        // Check the transfer state data with trigger array
+        expect(ssrContents).toContain(
+          '"__nghDeferData__":{"d0":{"r":1,"s":2},"d1":{"r":1,"s":2,"t":[2],"p":"d0"}}',
+        );
+      });
+    });
 
     describe('triggers', () => {
       describe('hydrate on interaction', () => {
@@ -646,17 +817,15 @@ describe('platform-server partial hydration integration', () => {
           @Component({
             selector: 'app',
             template: `
-            <main (click)="fnA()">
-              @defer (on viewport; hydrate on interaction) {
-                <article>
-                  defer block rendered!
-                </article>
-                <span id="test" (click)="fnB()">{{value()}}</span>
-              } @placeholder {
-                <span>Outer block placeholder</span>
-              }
-            </main>
-          `,
+              <main (click)="fnA()">
+                @defer (on viewport; hydrate on interaction) {
+                  <article>defer block rendered!</article>
+                  <span id="test" (click)="fnB()">{{ value() }}</span>
+                } @placeholder {
+                  <span>Outer block placeholder</span>
+                }
+              </main>
+            `,
           })
           class SimpleComponent {
             value = signal('start');
@@ -713,17 +882,17 @@ describe('platform-server partial hydration integration', () => {
           @Component({
             selector: 'app',
             template: `
-            <main (click)="fnA()">
-              @defer (on viewport; hydrate on interaction) {
-                <article>
-                  defer block rendered!
-                  <span id="test" (click)="fnB()">{{value()}}</span>
+              <main (click)="fnA()">
+                @defer (on viewport; hydrate on interaction) {
+                  <article>
+                    defer block rendered!
+                    <span id="test" (click)="fnB()">{{ value() }}</span>
                   </article>
-              } @placeholder {
-                <span>Outer block placeholder</span>
-              }
-            </main>
-          `,
+                } @placeholder {
+                  <span>Outer block placeholder</span>
+                }
+              </main>
+            `,
           })
           class SimpleComponent {
             value = signal('start');
@@ -783,17 +952,17 @@ describe('platform-server partial hydration integration', () => {
           @Component({
             selector: 'app',
             template: `
-            <main (click)="fnA()">
-              @defer (hydrate on hover) {
-                <article>
-                  defer block rendered!
-                  <span id="test" (click)="fnB()">{{value()}}</span>
-                </article>
-              } @placeholder {
-                <span>Outer block placeholder</span>
-              }
-            </main>
-          `,
+              <main (click)="fnA()">
+                @defer (hydrate on hover) {
+                  <article>
+                    defer block rendered!
+                    <span id="test" (click)="fnB()">{{ value() }}</span>
+                  </article>
+                } @placeholder {
+                  <span>Outer block placeholder</span>
+                }
+              </main>
+            `,
           })
           class SimpleComponent {
             value = signal('start');
@@ -855,17 +1024,17 @@ describe('platform-server partial hydration integration', () => {
           @Component({
             selector: 'app',
             template: `
-            <main (click)="fnA()">
-              @defer (hydrate on hover) {
-                <article>
-                  defer block rendered!
-                  <span id="test" (click)="fnB()">{{value()}}</span>
-                </article>
-              } @placeholder {
-                <span>Outer block placeholder</span>
-              }
-            </main>
-          `,
+              <main (click)="fnA()">
+                @defer (hydrate on hover) {
+                  <article>
+                    defer block rendered!
+                    <span id="test" (click)="fnB()">{{ value() }}</span>
+                  </article>
+                } @placeholder {
+                  <span>Outer block placeholder</span>
+                }
+              </main>
+            `,
           })
           class SimpleComponent {
             value = signal('start');
@@ -947,11 +1116,15 @@ describe('platform-server partial hydration integration', () => {
           root = null;
           rootMargin = null!;
           thresholds = null!;
+          scrollMargin = '';
 
           observedElements = new Set<Element>();
           private elementsInView = new Set<Element>();
 
-          constructor(private callback: IntersectionObserverCallback) {
+          constructor(
+            private callback: IntersectionObserverCallback,
+            readonly options: IntersectionObserverInit | null = null,
+          ) {
             activeObservers.push(this);
           }
 
@@ -1017,21 +1190,22 @@ describe('platform-server partial hydration integration', () => {
             throw new Error('Not supported');
           }
         }
+
         it('viewport', async () => {
           @Component({
             selector: 'app',
             template: `
-          <main (click)="fnA()">
-            @defer (hydrate on viewport) {
-              <article>
-                defer block rendered!
-                <span id="test" (click)="fnB()">{{value()}}</span>
-              </article>
-            } @placeholder {
-              <span>Outer block placeholder</span>
-            }
-          </main>
-        `,
+              <main (click)="fnA()">
+                @defer (hydrate on viewport) {
+                  <article>
+                    defer block rendered!
+                    <span id="test" (click)="fnB()">{{ value() }}</span>
+                  </article>
+                } @placeholder {
+                  <span>Outer block placeholder</span>
+                }
+              </main>
+            `,
           })
           class SimpleComponent {
             value = signal('start');
@@ -1099,23 +1273,65 @@ describe('platform-server partial hydration integration', () => {
 
           expect(appHostNode.outerHTML).toContain('<span id="test">end</span>');
         });
+
+        it('should create IntersectionObserver with the options from the `hydrate on viewport` trigger', async () => {
+          @Component({
+            selector: 'app',
+            template: `
+              <main>
+                @defer (hydrate on viewport({rootMargin: '123px', threshold: 0.5})) {
+                  <article>defer block rendered!</article>
+                } @placeholder {
+                  <span>Outer block placeholder</span>
+                }
+              </main>
+            `,
+          })
+          class SimpleComponent {}
+
+          const appId = 'custom-app-id';
+          const providers = [{provide: APP_ID, useValue: appId}];
+          const hydrationFeatures = () => [withIncrementalHydration()];
+
+          const html = await ssr(SimpleComponent, {envProviders: providers, hydrationFeatures});
+          const ssrContents = getAppContents(html);
+
+          expect(ssrContents).toContain(
+            '"__nghDeferData__":{"d0":{"r":1,"s":2,"t":[{"trigger":2,"intersectionObserverOptions":{"rootMargin":"123px","threshold":0.5}}]}}',
+          );
+
+          // Internal cleanup before we do server->client transition in this test.
+          resetTViewsFor(SimpleComponent);
+
+          ////////////////////////////////
+          const doc = getDocument();
+          const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent, {
+            envProviders: [...providers, {provide: PLATFORM_ID, useValue: 'browser'}],
+            hydrationFeatures,
+          });
+          appRef.tick();
+          await appRef.whenStable();
+
+          expect(activeObservers.length).toBe(1);
+          expect(activeObservers[0].options).toEqual({rootMargin: '123px', threshold: 0.5});
+        });
       });
 
       it('immediate', async () => {
         @Component({
           selector: 'app',
           template: `
-          <main (click)="fnA()">
-            @defer (hydrate on immediate) {
-              <article>
-                defer block rendered!
-                <span id="test" (click)="fnB()">{{value()}}</span>
-              </article>
-            } @placeholder {
-              <span>Outer block placeholder</span>
-            }
-          </main>
-        `,
+            <main (click)="fnA()">
+              @defer (hydrate on immediate) {
+                <article>
+                  defer block rendered!
+                  <span id="test" (click)="fnB()">{{ value() }}</span>
+                </article>
+              } @placeholder {
+                <span>Outer block placeholder</span>
+              }
+            </main>
+          `,
         })
         class SimpleComponent {
           value = signal('start');
@@ -1161,13 +1377,17 @@ describe('platform-server partial hydration integration', () => {
         appRef.tick();
 
         expect(appHostNode.outerHTML).toContain('<span id="test">end</span>');
-      }, 100_000);
+      });
 
       describe('idle', () => {
         /**
          * Sets up interceptors for when an idle callback is requested
          * and when it's cancelled. This is needed to keep track of calls
          * made to `requestIdleCallback` and `cancelIdleCallback` APIs.
+         *
+         * The mock enforces the per-bucket invariant: for a given timeout
+         * value, at most ONE `requestIdleCallback` should be active at a
+         * time
          */
         let id = 0;
         let idleCallbacksRequested: number;
@@ -1175,10 +1395,16 @@ describe('platform-server partial hydration integration', () => {
         let idleCallbacksCancelled: number;
         const onIdleCallbackQueue: Map<number, IdleRequestCallback> = new Map();
 
+        // Tracks active idle callback counts per serialized options key.
+        const activePerTimeout = new Map<string, number>();
+        const idToTimeout = new Map<number, string>();
+
         function resetCounters() {
           idleCallbacksRequested = 0;
           idleCallbacksInvoked = 0;
           idleCallbacksCancelled = 0;
+          activePerTimeout.clear();
+          idToTimeout.clear();
         }
         resetCounters();
 
@@ -1193,14 +1419,35 @@ describe('platform-server partial hydration integration', () => {
           options?: IdleRequestOptions,
         ): number => {
           onIdleCallbackQueue.set(id, callback);
-          expect(idleCallbacksRequested).toBe(0);
-          expect(NgZone.isInAngularZone()).toBe(true);
+
+          // Enforce per-bucket invariant: a given options key must not
+          // already have an active requestIdleCallback.
+          const optionsKey = options?.timeout != null ? `${options.timeout}` : '';
+          const activeCount = activePerTimeout.get(optionsKey) ?? 0;
+          expect(activeCount)
+            .withContext(
+              `Expected 0 active idle callbacks for key='${optionsKey}', ` +
+                `but found ${activeCount}. Each options bucket should have at most one.`,
+            )
+            .toBe(0);
+          activePerTimeout.set(optionsKey, activeCount + 1);
+          idToTimeout.set(id, optionsKey);
+
           idleCallbacksRequested++;
           return id++;
         };
 
         const mockCancelIdleCallback = (id: number) => {
           onIdleCallbackQueue.delete(id);
+
+          // Decrement per-bucket active count.
+          const optionsKey = idToTimeout.get(id);
+          if (optionsKey !== undefined) {
+            const count = activePerTimeout.get(optionsKey) ?? 0;
+            activePerTimeout.set(optionsKey, Math.max(0, count - 1));
+            idToTimeout.delete(id);
+          }
+
           idleCallbacksRequested--;
           idleCallbacksCancelled++;
         };
@@ -1232,17 +1479,17 @@ describe('platform-server partial hydration integration', () => {
           @Component({
             selector: 'app',
             template: `
-        <main (click)="fnA()">
-          @defer (hydrate on idle) {
-            <article>
-              defer block rendered!
-              <span id="test" (click)="fnB()">{{value()}}</span>
-            </article>
-          } @placeholder {
-            <span>Outer block placeholder</span>
-          }
-        </main>
-      `,
+              <main (click)="fnA()">
+                @defer (hydrate on idle) {
+                  <article>
+                    defer block rendered!
+                    <span id="test" (click)="fnB()">{{ value() }}</span>
+                  </article>
+                } @placeholder {
+                  <span>Outer block placeholder</span>
+                }
+              </main>
+            `,
           })
           class SimpleComponent {
             value = signal('start');
@@ -1297,24 +1544,22 @@ describe('platform-server partial hydration integration', () => {
 
           expect(appHostNode.outerHTML).toContain('<span id="test">end</span>');
         });
-      });
 
-      describe('timer', () => {
-        it('top level timer', async () => {
+        it('idle with timeout', async () => {
           @Component({
             selector: 'app',
             template: `
-            <main (click)="fnA()">
-              @defer (hydrate on timer(500)) {
-                <article>
-                  defer block rendered!
-                  <span id="test" (click)="fnB()">{{value()}}</span>
-                </article>
-              } @placeholder {
-                <span>Outer block placeholder</span>
-              }
-            </main>
-          `,
+              <main (click)="fnA()">
+                @defer (hydrate on idle(2500)) {
+                  <article>
+                    defer block rendered with timeout!
+                    <span id="test" (click)="fnB()">{{ value() }}</span>
+                  </article>
+                } @placeholder {
+                  <span>Outer block placeholder</span>
+                }
+              </main>
+            `,
           })
           class SimpleComponent {
             value = signal('start');
@@ -1326,6 +1571,94 @@ describe('platform-server partial hydration integration', () => {
 
           const appId = 'custom-app-id';
           const providers = [{provide: APP_ID, useValue: appId}];
+          const hydrationFeatures = () => [withIncrementalHydration()];
+
+          const html = await ssr(SimpleComponent, {envProviders: providers, hydrationFeatures});
+          const ssrContents = getAppContents(html);
+
+          // <main> uses "eager" `custom-app-id` namespace.
+          expect(ssrContents).toContain('<main jsaction="click:;');
+          // <div>s inside a defer block have `d0` as a namespace.
+          expect(ssrContents).toContain('<article>');
+          // Outer defer block is rendered.
+          expect(ssrContents).toContain('defer block rendered with timeout');
+
+          // Internal cleanup before we do server->client transition in this test.
+          resetTViewsFor(SimpleComponent);
+
+          ////////////////////////////////
+          const doc = getDocument();
+          const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent, {
+            envProviders: [...providers, {provide: PLATFORM_ID, useValue: 'browser'}],
+            hydrationFeatures,
+          });
+          const compRef = getComponentRef<SimpleComponent>(appRef);
+          appRef.tick();
+          await appRef.whenStable();
+
+          const appHostNode = compRef.location.nativeElement;
+
+          expect(appHostNode.outerHTML).toContain('<article>');
+
+          // Verify that requestIdleCallback was called: one for default prefetch on idle,
+          // one for hydrate on idle(2500) — each timeout value gets its own bucket.
+          expect(idleCallbacksRequested).toBe(2);
+
+          triggerIdleCallbacks();
+          await allPendingDynamicImports();
+          appRef.tick();
+
+          expect(appHostNode.outerHTML).toContain('<span id="test">start</span>');
+
+          const testElement = doc.getElementById('test')!;
+          const clickEvent2 = new CustomEvent('click');
+          testElement.dispatchEvent(clickEvent2);
+
+          appRef.tick();
+
+          expect(appHostNode.outerHTML).toContain('<span id="test">end</span>');
+        });
+      });
+
+      describe('timer', () => {
+        class FakeTimerScheduler {
+          add(delay: number, callback: VoidFunction) {
+            callback();
+          }
+          remove(callback: VoidFunction) {
+            /* noop */
+          }
+        }
+
+        it('top level timer', async () => {
+          @Component({
+            selector: 'app',
+            template: `
+              <main (click)="fnA()">
+                @defer (hydrate on timer(150)) {
+                  <article>
+                    defer block rendered!
+                    <span id="test" (click)="fnB()">{{ value() }}</span>
+                  </article>
+                } @placeholder {
+                  <span>Outer block placeholder</span>
+                }
+              </main>
+            `,
+          })
+          class SimpleComponent {
+            value = signal('start');
+            fnA() {}
+            fnB() {
+              this.value.set('end');
+            }
+          }
+
+          const appId = 'custom-app-id';
+          const providers = [
+            {provide: APP_ID, useValue: appId},
+            {provide: TimerScheduler, useClass: FakeTimerScheduler},
+          ];
           const hydrationFeatures = () => [withIncrementalHydration()];
 
           const html = await ssr(SimpleComponent, {envProviders: providers, hydrationFeatures});
@@ -1348,63 +1681,54 @@ describe('platform-server partial hydration integration', () => {
             hydrationFeatures,
           });
           const compRef = getComponentRef<SimpleComponent>(appRef);
-          appRef.tick();
           await appRef.whenStable();
 
           const appHostNode = compRef.location.nativeElement;
 
           expect(appHostNode.outerHTML).toContain('<article>');
-
-          await timeout(500); // wait for timer
-          appRef.tick();
-
           await allPendingDynamicImports();
-          appRef.tick();
 
           expect(appHostNode.outerHTML).toContain('<span id="test">start</span>');
-
-          const testElement = doc.getElementById('test')!;
-          const clickEvent2 = new CustomEvent('click');
-          testElement.dispatchEvent(clickEvent2);
-
-          appRef.tick();
-
-          expect(appHostNode.outerHTML).toContain('<span id="test">end</span>');
         });
 
         it('nested timer', async () => {
           @Component({
             selector: 'app',
             template: `
-            <main (click)="fnA()">
-              @defer (on viewport; hydrate on interaction) {
-                <div id="main" (click)="fnA()">
-                  defer block rendered!
-                  @defer (on viewport; hydrate on timer(500)) {
-                    <article>
-                      <p id="nested">Nested defer block</p>
-                      <span id="test" (click)="fnB()">{{value()}}</span>
-                    </article>
-                  } @placeholder {
-                    <span>Inner block placeholder</span>
-                  }
-                </div>
-              } @placeholder {
-                <span>Outer block placeholder</span>
-              }
-            </main>
-          `,
+              <main (click)="fnA()">
+                @defer (on viewport; hydrate on interaction) {
+                  <div id="main" (click)="fnA()">
+                    defer block rendered!
+                    @defer (on viewport; hydrate on timer(150)) {
+                      <article>
+                        <p id="nested">Nested defer block</p>
+                        <span id="test">{{ value() }}</span>
+                      </article>
+                    } @placeholder {
+                      <span>Inner block placeholder</span>
+                    }
+                  </div>
+                } @placeholder {
+                  <span>Outer block placeholder</span>
+                }
+              </main>
+            `,
           })
           class SimpleComponent {
             value = signal('start');
             fnA() {}
-            fnB() {
-              this.value.set('end');
+            constructor() {
+              if (!isPlatformServer(inject(PLATFORM_ID))) {
+                this.value.set('end');
+              }
             }
           }
 
           const appId = 'custom-app-id';
-          const providers = [{provide: APP_ID, useValue: appId}];
+          const providers = [
+            {provide: APP_ID, useValue: appId},
+            {provide: TimerScheduler, useClass: FakeTimerScheduler},
+          ];
           const hydrationFeatures = () => [withIncrementalHydration()];
 
           const html = await ssr(SimpleComponent, {envProviders: providers, hydrationFeatures});
@@ -1423,39 +1747,17 @@ describe('platform-server partial hydration integration', () => {
           ////////////////////////////////
           const doc = getDocument();
           const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent, {
-            envProviders: [
-              ...providers,
-              {provide: PLATFORM_ID, useValue: 'browser'},
-              withDebugConsole(),
-            ],
+            envProviders: [...providers, {provide: PLATFORM_ID, useValue: 'browser'}],
             hydrationFeatures,
           });
           const compRef = getComponentRef<SimpleComponent>(appRef);
-          appRef.tick();
           await appRef.whenStable();
 
           const appHostNode = compRef.location.nativeElement;
 
           expect(appHostNode.outerHTML).toContain('<article>');
 
-          verifyHasLog(
-            appRef,
-            'Angular hydrated 1 component(s) and 21 node(s), 0 component(s) were skipped. 2 defer block(s) were configured to use incremental hydration.',
-          );
-
-          await timeout(500); // wait for timer
-          appRef.tick();
-
           await allPendingDynamicImports();
-          appRef.tick();
-
-          expect(appHostNode.outerHTML).toContain('<span id="test">start</span>');
-
-          const testElement = doc.getElementById('test')!;
-          const clickEvent2 = new CustomEvent('click');
-          testElement.dispatchEvent(clickEvent2);
-
-          appRef.tick();
 
           expect(appHostNode.outerHTML).toContain('<span id="test">end</span>');
         });
@@ -1465,18 +1767,18 @@ describe('platform-server partial hydration integration', () => {
         @Component({
           selector: 'app',
           template: `
-          <main (click)="fnA()">
-            @defer (on immediate; hydrate when iSaySo()) {
-              <article>
-                defer block rendered!
-                <span id="test" (click)="fnB()">{{value()}}</span>
-              </article>
-            } @placeholder {
-              <span>Outer block placeholder</span>
-            }
-            <button id="hydrate-me" (click)="triggerHydration()">Click Here</button>
-          </main>
-        `,
+            <main (click)="fnA()">
+              @defer (on immediate; hydrate when iSaySo()) {
+                <article>
+                  defer block rendered!
+                  <span id="test" (click)="fnB()">{{ value() }}</span>
+                </article>
+              } @placeholder {
+                <span>Outer block placeholder</span>
+              }
+              <button id="hydrate-me" (click)="triggerHydration()">Click Here</button>
+            </main>
+          `,
         })
         class SimpleComponent {
           value = signal('start');
@@ -1551,16 +1853,14 @@ describe('platform-server partial hydration integration', () => {
         @Component({
           selector: 'app',
           template: `
-          <main (click)="fnA()">
-            @defer (hydrate never) {
-              <article>
-                defer block rendered!
-              </article>
-            } @placeholder {
-              <span>Outer block placeholder</span>
-            }
-          </main>
-        `,
+            <main (click)="fnA()">
+              @defer (hydrate never) {
+                <article>defer block rendered!</article>
+              } @placeholder {
+                <span>Outer block placeholder</span>
+              }
+            </main>
+          `,
         })
         class SimpleComponent {
           value = signal('start');
@@ -1614,17 +1914,17 @@ describe('platform-server partial hydration integration', () => {
         @Component({
           selector: 'app',
           template: `
-          <main (click)="fnA()">
-            @defer (on timer(1s); hydrate never) {
-              <article>
-                defer block rendered!
-                <span id="test" (click)="fnB()">{{value()}}</span>
-              </article>
-            } @placeholder {
-              <span>Outer block placeholder</span>
-            }
-          </main>
-        `,
+            <main (click)="fnA()">
+              @defer (on timer(1s); hydrate never) {
+                <article>
+                  defer block rendered!
+                  <span id="test" (click)="fnB()">{{ value() }}</span>
+                </article>
+              } @placeholder {
+                <span>Outer block placeholder</span>
+              }
+            </main>
+          `,
         })
         class SimpleComponent {
           value = signal('start');
@@ -1689,30 +1989,30 @@ describe('platform-server partial hydration integration', () => {
         @Component({
           selector: 'app',
           template: `
-          <main (click)="fnA()">
-            @defer (on timer(1s); hydrate never) {
-              <article>
-                defer block rendered!
-                <span id="test" (click)="fnB()">{{value()}}</span>
-                @defer(on immediate; hydrate on idle) {
-                  <p id="test2" (click)="fnB()">shouldn't be annotated</p>
-                } @placeholder {
-                  <p>blah de blah</p>
-                }
-              </article>
-            } @placeholder {
-              <span>Outer block placeholder</span>
-            }
-            @defer (on timer(1s); hydrate on viewport) {
-              <div>
-                viewport section
-                <p (click)="fnA()">has a binding</p>
-            </div>
-            } @placeholder {
-              <span>another placeholder</span>
-            }
-          </main>
-        `,
+            <main (click)="fnA()">
+              @defer (on timer(1s); hydrate never) {
+                <article>
+                  defer block rendered!
+                  <span id="test" (click)="fnB()">{{ value() }}</span>
+                  @defer (on immediate; hydrate on idle) {
+                    <p id="test2" (click)="fnB()">shouldn't be annotated</p>
+                  } @placeholder {
+                    <p>blah de blah</p>
+                  }
+                </article>
+              } @placeholder {
+                <span>Outer block placeholder</span>
+              }
+              @defer (on timer(1s); hydrate on viewport) {
+                <div>
+                  viewport section
+                  <p (click)="fnA()">has a binding</p>
+                </div>
+              } @placeholder {
+                <span>another placeholder</span>
+              }
+            </main>
+          `,
         })
         class SimpleComponent {
           value = signal('start');
@@ -1793,6 +2093,9 @@ describe('platform-server partial hydration integration', () => {
 
   describe('client side navigation', () => {
     beforeEach(() => {
+      // This test emulates client-side behavior, set global server mode flag to `false`.
+      globalThis['ngServerMode'] = false;
+
       TestBed.configureTestingModule({
         providers: [
           {provide: PLATFORM_ID, useValue: PLATFORM_BROWSER_ID},
@@ -1801,32 +2104,28 @@ describe('platform-server partial hydration integration', () => {
       });
     });
 
+    afterEach(() => {
+      globalThis['ngServerMode'] = undefined;
+    });
+
     it('should not try to hydrate in CSR only cases', async () => {
       @Component({
         selector: 'app',
         template: `
-          <main (click)="fnA()">
-            @defer (hydrate when true) {
-              <article>
-                defer block rendered!
-                <span id="test" (click)="fnB()">{{value()}}</span>
-              </article>
-            } @placeholder {
-              <span>Outer block placeholder</span>
-            }
-          </main>
+          @defer (hydrate when true; on interaction) {
+            <p>Defer block rendered!</p>
+          } @placeholder {
+            <span>Outer block placeholder</span>
+          }
         `,
       })
-      class SimpleComponent {
-        value = signal('start');
-        fnA() {}
-        fnB() {
-          this.value.set('end');
-        }
-      }
+      class SimpleComponent {}
+
       const fixture = TestBed.createComponent(SimpleComponent);
       fixture.detectChanges();
 
+      // Verify that `hydrate when true` doesn't trigger rendering of the main
+      // content in client-only use-cases (expecting to see placeholder content).
       expect(fixture.nativeElement.innerHTML).toContain('Outer block placeholder');
     });
   });
@@ -1842,9 +2141,9 @@ describe('platform-server partial hydration integration', () => {
                 <p>Main defer block rendered!</p>
                 @for (item of items; track $index) {
                   @defer (on interaction; hydrate on interaction) {
-                    <article id="item-{{item}}">
-                      defer block {{item}} rendered!
-                      <span (click)="fnB()">{{value()}}</span>
+                    <article id="item-{{ item }}">
+                      defer block {{ item }} rendered!
+                      <span (click)="fnB()">{{ value() }}</span>
                     </article>
                   } @placeholder {
                     <span>Outer block placeholder</span>
@@ -1865,6 +2164,14 @@ describe('platform-server partial hydration integration', () => {
           this.value.set('end');
         }
         registry = inject(DEHYDRATED_BLOCK_REGISTRY);
+
+        constructor() {
+          // TODO: Understand why this is needed to get the full rendering of the HTML
+          // Without it, bindings aren't properly rendered in SSR and the test fails.
+          // There was no issue with the zone based scheduler.
+          const remove = inject(PendingTasks).add();
+          setTimeout(() => remove(), 10);
+        }
       }
 
       const appId = 'custom-app-id';
@@ -1913,6 +2220,164 @@ describe('platform-server partial hydration integration', () => {
       );
       expect(appHostNode.outerHTML).not.toContain('<span>Outer block placeholder</span>');
       expect(registry.cleanup).toHaveBeenCalledTimes(1);
+    });
+
+    it('should handle hydration and cleanup when if then condition changes', async () => {
+      @Component({
+        selector: 'app',
+        template: `
+          <main>
+            @defer (on interaction; hydrate on interaction) {
+              <div id="main" (click)="fnA()">
+                <p>Main defer block rendered!</p>
+                @if (isServer) {
+                  @defer (on interaction; hydrate on interaction) {
+                    <article id="item">nested defer block rendered!</article>
+                  } @placeholder {
+                    <span>Outer block placeholder</span>
+                  }
+                } @else {
+                  <p>client side</p>
+                }
+              </div>
+            } @placeholder {
+              <span>Outer block placeholder</span>
+            }
+          </main>
+        `,
+      })
+      class SimpleComponent {
+        value = signal('start');
+        isServer = isPlatformServer(inject(PLATFORM_ID));
+        fnA() {}
+        fnB() {
+          this.value.set('end');
+        }
+      }
+
+      const appId = 'custom-app-id';
+      const providers = [{provide: APP_ID, useValue: appId}];
+      const hydrationFeatures = () => [withIncrementalHydration()];
+
+      const html = await ssr(SimpleComponent, {envProviders: providers, hydrationFeatures});
+      const ssrContents = getAppContents(html);
+
+      expect(ssrContents).toContain('<article id="item" jsaction="click:;keydown:;"');
+      expect(ssrContents).toContain('nested defer block rendered');
+
+      // Internal cleanup before we do server->client transition in this test.
+      resetTViewsFor(SimpleComponent);
+
+      ////////////////////////////////
+      const doc = getDocument();
+      const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent, {
+        envProviders: [...providers, {provide: PLATFORM_ID, useValue: 'browser'}],
+        hydrationFeatures,
+      });
+      const compRef = getComponentRef<SimpleComponent>(appRef);
+      appRef.tick();
+      await appRef.whenStable();
+
+      const appHostNode = compRef.location.nativeElement;
+      expect(appHostNode.outerHTML).toContain('nested defer block rendered');
+
+      const article = doc.getElementById('item')!;
+      const clickEvent = new CustomEvent('click', {bubbles: true});
+      article.dispatchEvent(clickEvent);
+      await allPendingDynamicImports();
+
+      appRef.tick();
+
+      expect(appHostNode.outerHTML).not.toContain('nested defer block rendered');
+      expect(appHostNode.outerHTML).toContain('<p>client side</p>');
+
+      // Emit an event inside of a defer block, which should result
+      // in triggering the defer block (start loading deps, etc) and
+      // subsequent hydration.
+      expect(appHostNode.outerHTML).not.toContain('<span>Outer block placeholder</span>');
+    });
+
+    it('should render an error block when loading fails and cleanup the original content', async () => {
+      @Component({
+        selector: 'nested-cmp',
+        template: 'Rendering {{ block }} block.',
+      })
+      class NestedCmp {
+        @Input() block!: string;
+      }
+
+      @Component({
+        selector: 'app',
+        imports: [NestedCmp],
+        template: `
+          <main>
+            @defer (on interaction; hydrate on interaction) {
+              <article id="item">
+                <nested-cmp [block]="'primary'" />
+              </article>
+            } @placeholder {
+              <span>Outer block placeholder</span>
+            } @error {
+              <p>Failed to load dependencies :(</p>
+              <nested-cmp [block]="'error'" />
+            }
+          </main>
+        `,
+      })
+      class SimpleComponent {
+        @ViewChildren(NestedCmp) cmps!: QueryList<NestedCmp>;
+        value = signal('start');
+        fnA() {}
+        fnB() {
+          this.value.set('end');
+        }
+      }
+
+      const deferDepsInterceptor = {
+        intercept() {
+          return () => [failedDynamicImport()];
+        },
+      };
+
+      const appId = 'custom-app-id';
+      const providers = [{provide: APP_ID, useValue: appId}];
+      const hydrationFeatures = () => [withIncrementalHydration()];
+
+      const html = await ssr(SimpleComponent, {envProviders: providers, hydrationFeatures});
+      const ssrContents = getAppContents(html);
+
+      expect(ssrContents).toContain('<article id="item" jsaction="click:;keydown:;"');
+      expect(ssrContents).toContain('Rendering primary block');
+
+      // Internal cleanup before we do server->client transition in this test.
+      resetTViewsFor(SimpleComponent);
+
+      ////////////////////////////////
+      const doc = getDocument();
+      const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent, {
+        envProviders: [
+          ...providers,
+          {provide: PLATFORM_ID, useValue: 'browser'},
+          {provide: ɵDEFER_BLOCK_DEPENDENCY_INTERCEPTOR, useValue: deferDepsInterceptor},
+        ],
+        hydrationFeatures,
+      });
+      const compRef = getComponentRef<SimpleComponent>(appRef);
+      appRef.tick();
+      await appRef.whenStable();
+
+      const appHostNode = compRef.location.nativeElement;
+      expect(appHostNode.outerHTML).toContain('Rendering primary block');
+
+      const article = doc.getElementById('item')!;
+      const clickEvent = new CustomEvent('click', {bubbles: true});
+      article.dispatchEvent(clickEvent);
+      await allPendingDynamicImports();
+
+      appRef.tick();
+
+      expect(appHostNode.outerHTML).not.toContain('Rendering primary block');
+      expect(appHostNode.outerHTML).toContain('Rendering error block');
     });
   });
 
@@ -2397,6 +2862,7 @@ describe('platform-server partial hydration integration', () => {
 
       const routeLink = doc.getElementById('route-link')!;
       routeLink.click();
+      await appRef.whenStable();
       await allPendingDynamicImports();
       appRef.tick();
 
@@ -2406,6 +2872,166 @@ describe('platform-server partial hydration integration', () => {
       expect(location.path()).toBe('/other/thing/stuff');
 
       expect(appHostNode.outerHTML).toContain('<p>OtherCmp content</p>');
+    });
+
+    it('should trigger immediate with a lazy loaded route', async () => {
+      @Component({
+        selector: 'nested-more',
+        template: `
+          <div>
+            @defer (hydrate on immediate) {
+              <button id="click-me" (click)="clickMe()">Click me I'm dehydrated?</button>
+              <p id="hydrated">{{ hydrated() }}</p>
+            }
+          </div>
+        `,
+      })
+      class NestedMoreCmp {
+        hydrated = signal('nope');
+        constructor() {
+          if (!isPlatformServer(inject(PLATFORM_ID))) {
+            this.hydrated.set('yup');
+          }
+        }
+      }
+      @Component({
+        selector: 'nested',
+        imports: [NestedMoreCmp],
+        template: `
+          <div>
+            @defer (hydrate on interaction) {
+              <nested-more />
+            }
+          </div>
+        `,
+      })
+      class NestedCmp {}
+
+      @Component({
+        selector: 'lazy',
+        imports: [NestedCmp],
+        template: `
+          @defer (hydrate on interaction) {
+            <nested />
+          }
+        `,
+      })
+      class LazyCmp {}
+
+      const routes: Routes = [
+        {
+          path: '',
+          loadComponent: () => dynamicImportOf(LazyCmp, 50),
+        },
+      ];
+
+      @Component({
+        selector: 'app',
+        imports: [RouterOutlet],
+        template: `
+          Works!
+          <router-outlet />
+        `,
+      })
+      class SimpleComponent {
+        location = inject(Location);
+      }
+
+      const appId = 'custom-app-id';
+      const providers = [
+        {provide: APP_ID, useValue: appId},
+        {provide: PlatformLocation, useClass: MockPlatformLocation},
+        provideRouter(routes),
+      ] as unknown as Provider[];
+      const hydrationFeatures = () => [withIncrementalHydration()];
+
+      const html = await ssr(SimpleComponent, {envProviders: providers, hydrationFeatures});
+      const ssrContents = getAppContents(html);
+
+      expect(ssrContents).toContain(
+        `<button id="click-me" jsaction="click:;" ngb="d2">Click me I'm dehydrated?</button>`,
+      );
+      expect(ssrContents).toContain(`<p id="hydrated">nope</p>`);
+
+      resetTViewsFor(SimpleComponent, LazyCmp);
+
+      const doc = getDocument();
+      const appRef = await prepareEnvironmentAndHydrate(doc, html, SimpleComponent, {
+        envProviders: [...providers],
+        hydrationFeatures,
+      });
+      const compRef = getComponentRef<SimpleComponent>(appRef);
+      await appRef.whenStable();
+      await allPendingDynamicImports();
+      const appHostNode = compRef.location.nativeElement;
+
+      expect(appHostNode.outerHTML).toContain(
+        `<button id="click-me">Click me I'm dehydrated?</button>`,
+      );
+      expect(appHostNode.outerHTML).toContain(`<p id="hydrated">yup</p>`);
+    });
+  });
+
+  describe('misconfiguration', () => {
+    it('should log a warning when `withIncrementalHydration()` is missing in SSR setup', async () => {
+      @Component({
+        selector: 'app',
+        template: `
+          @defer (hydrate never) {
+            <div>Hydrate never block</div>
+          }
+        `,
+      })
+      class SimpleComponent {}
+
+      const appId = 'custom-app-id';
+      const providers = [{provide: APP_ID, useValue: appId}];
+
+      // Empty list, `withIncrementalHydration()` is not included intentionally.
+      const hydrationFeatures = () => [];
+      const consoleSpy = spyOn(console, 'warn');
+      resetIncrementalHydrationEnabledWarnedForTests();
+
+      await ssr(SimpleComponent, {envProviders: providers, hydrationFeatures});
+      expect(consoleSpy).toHaveBeenCalledTimes(1);
+      expect(consoleSpy).toHaveBeenCalledWith(jasmine.stringMatching('NG0508'));
+    });
+
+    it('should log a warning when `withIncrementalHydration()` is missing in hydration setup', async () => {
+      @Component({
+        selector: 'app',
+        template: `
+          @defer (hydrate never) {
+            <div>Hydrate never block</div>
+          }
+        `,
+      })
+      class SimpleComponent {}
+
+      const appId = 'custom-app-id';
+      const providers = [{provide: APP_ID, useValue: appId}];
+
+      const hydrationFeatures = () => [withIncrementalHydration()];
+
+      const html = await ssr(SimpleComponent, {envProviders: providers, hydrationFeatures});
+
+      // Internal cleanup before we do server->client transition in this test.
+      resetTViewsFor(SimpleComponent);
+
+      ////////////////////////////////
+
+      const consoleSpy = spyOn(console, 'warn');
+      resetIncrementalHydrationEnabledWarnedForTests();
+
+      const doc = getDocument();
+      await prepareEnvironmentAndHydrate(doc, html, SimpleComponent, {
+        envProviders: [...providers, {provide: PLATFORM_ID, useValue: 'browser'}],
+        // Empty list, `withIncrementalHydration()` is not included intentionally.
+        hydrationFeatures: () => [],
+      });
+
+      expect(consoleSpy).toHaveBeenCalledTimes(1);
+      expect(consoleSpy).toHaveBeenCalledWith(jasmine.stringMatching('NG0508'));
     });
   });
 });

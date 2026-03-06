@@ -8,7 +8,7 @@
 
 /// <reference types="chrome"/>
 
-import {Events, MessageBus, Parameters} from 'protocol';
+import {Events, MessageBus, Parameters} from '../../../protocol';
 
 interface ChromeMessage<T, K extends keyof T> {
   topic: K;
@@ -74,6 +74,7 @@ export class ChromeMessageBus extends MessageBus<Events> {
       topic,
       args,
       __ignore_ng_zone__: true,
+      __NG_DEVTOOLS_EVENT__: true,
     });
     return true;
   }

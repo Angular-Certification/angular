@@ -15,6 +15,10 @@ describe('applyShims()', () => {
     // Un-patch `global`.
     const currentProps = Object.keys(global);
     for (const prop of currentProps) {
+      if (['navigator', 'crypto'].includes(prop)) {
+        // These props are just a getter and cannot be changed
+        continue;
+      }
       if (globalClone.hasOwnProperty(prop)) {
         (global as any)[prop] = (globalClone as any)[prop];
       } else {

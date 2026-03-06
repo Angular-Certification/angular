@@ -6,6 +6,8 @@
  * found in the LICENSE file at https://angular.dev/license
  */
 import {CommonModule} from '@angular/common';
+import {By, DomSanitizer, SafeStyle} from '@angular/platform-browser';
+import {isBrowser} from '@angular/private/testing';
 import {
   Component,
   ComponentRef,
@@ -13,25 +15,26 @@ import {
   ElementRef,
   HostBinding,
   Input,
+  provideZoneChangeDetection,
   Renderer2,
   ViewChild,
   ViewContainerRef,
-} from '@angular/core';
-import {bypassSanitizationTrustStyle} from '@angular/core/src/sanitization/bypass';
-import {ngDevModeResetPerfCounters} from '@angular/core/src/util/ng_dev_mode';
-import {TestBed} from '@angular/core/testing';
+} from '../../src/core';
+import {bypassSanitizationTrustStyle} from '../../src/sanitization/bypass';
+import {TestBed} from '../../testing';
 import {
   getElementClasses,
   getElementStyles,
   getSortedClassName,
   getSortedStyle,
-} from '@angular/core/testing/src/styling';
-import {By, DomSanitizer, SafeStyle} from '@angular/platform-browser';
-import {expectPerfCounters} from '@angular/private/testing';
+} from '../../testing/src/styling';
 
 describe('styling', () => {
-  beforeEach(ngDevModeResetPerfCounters);
-
+  beforeEach(() => {
+    TestBed.configureTestingModule({
+      providers: [provideZoneChangeDetection()],
+    });
+  });
   describe('apply in prioritization order', () => {
     it('should perform static bindings', () => {
       @Component({
@@ -50,9 +53,11 @@ describe('styling', () => {
 
     it('should perform prop bindings', () => {
       @Component({
-        template: `<div [class.dynamic]="true"
-                        [style.color]="'blue'"
-                        [style.width.px]="100"></div>`,
+        template: `<div
+          [class.dynamic]="true"
+          [style.color]="'blue'"
+          [style.width.px]="100"
+        ></div>`,
         standalone: false,
       })
       class Cmp {}
@@ -68,8 +73,7 @@ describe('styling', () => {
 
     it('should perform map bindings', () => {
       @Component({
-        template: `<div [class]="{dynamic: true}"
-                        [style]="{color: 'blue', width: '100px'}"></div>`,
+        template: `<div [class]="{dynamic: true}" [style]="{color: 'blue', width: '100px'}"></div>`,
         standalone: false,
       })
       class Cmp {}
@@ -85,9 +89,11 @@ describe('styling', () => {
 
     it('should perform interpolation bindings', () => {
       @Component({
-        template: `<div class="static {{'dynamic'}}"
-                        style.color="blu{{'e'}}"
-                        style="width: {{'100'}}px"></div>`,
+        template: `<div
+          class="static {{ 'dynamic' }}"
+          style.color="blu{{ 'e' }}"
+          style="width: {{ '100' }}px"
+        ></div>`,
         standalone: false,
       })
       class Cmp {}
@@ -103,7 +109,12 @@ describe('styling', () => {
 
     it('should support hostBindings', () => {
       @Component({
-        template: `<div my-host-bindings-2 my-host-bindings-1 class="STATIC" style="color: blue"></div>`,
+        template: `<div
+          my-host-bindings-2
+          my-host-bindings-1
+          class="STATIC"
+          style="color: blue"
+        ></div>`,
         standalone: false,
       })
       class Cmp {}
@@ -176,7 +187,7 @@ describe('styling', () => {
       @Component({
         selector: 'test-style-quoting',
         template: `
-          <div style="content: &quot;foo&quot;"></div>
+          <div style='content: "foo"'></div>
           <div style='content: "foo"'></div>
           <div style="content: 'foo'"></div>
         `,
@@ -197,10 +208,12 @@ describe('styling', () => {
     it('should apply template classes in correct order', () => {
       @Component({
         template: `
-        <div class="STATIC DELETE_MAP_A DELETE_PROP_B"
-             [class]="{foo: true, DELETE_MAP_A: false}"
-             [class.bar]="true"
-             [class.DELETE_PROP_B]="false"></div>
+          <div
+            class="STATIC DELETE_MAP_A DELETE_PROP_B"
+            [class]="{foo: true, DELETE_MAP_A: false}"
+            [class.bar]="true"
+            [class.DELETE_PROP_B]="false"
+          ></div>
         `,
         standalone: false,
       })
@@ -217,10 +230,12 @@ describe('styling', () => {
     it('should apply template styles in correct order', () => {
       @Component({
         template: `
-        <div style="width: 100px; height: 200px: color: red; background-color: yellow"
-             [style]="{width: '110px', height: null}"
-             [style.color]=" 'blue' "
-             [style.height.px]="undefined"></div>
+          <div
+            style="width: 100px; height: 200px: color: red; background-color: yellow"
+            [style]="{width: '110px', height: null}"
+            [style.color]="'blue'"
+            [style.height.px]="undefined"
+          ></div>
         `,
         standalone: false,
       })
@@ -331,7 +346,6 @@ describe('styling', () => {
     it('should allow null in a class array binding', () => {
       @Component({
         template: `<div [class]="['a', null, 'c']" [class.extra]="true"></div>`,
-        standalone: true,
       })
       class Cmp {}
 
@@ -344,7 +358,6 @@ describe('styling', () => {
     it('should allow undefined in a class array binding', () => {
       @Component({
         template: `<div [class]="['a', undefined, 'c']" [class.extra]="true"></div>`,
-        standalone: true,
       })
       class Cmp {}
 
@@ -357,7 +370,6 @@ describe('styling', () => {
     it('should allow zero in a class array binding', () => {
       @Component({
         template: `<div [class]="['a', 0, 'c']" [class.extra]="true"></div>`,
-        standalone: true,
       })
       class Cmp {}
 
@@ -370,7 +382,6 @@ describe('styling', () => {
     it('should allow false in a class array binding', () => {
       @Component({
         template: `<div [class]="['a', false, 'c']" [class.extra]="true"></div>`,
-        standalone: true,
       })
       class Cmp {}
 
@@ -383,7 +394,6 @@ describe('styling', () => {
     it('should ignore an empty string in a class array binding', () => {
       @Component({
         template: `<div [class]="['a', '', 'c']" [class.extra]="true"></div>`,
-        standalone: true,
       })
       class Cmp {}
 
@@ -396,7 +406,6 @@ describe('styling', () => {
     it('should ignore a string containing spaces in a class array binding', () => {
       @Component({
         template: `<div [class]="['a', 'hello there', 'c']" [class.extra]="true"></div>`,
-        standalone: true,
       })
       class Cmp {}
 
@@ -408,8 +417,10 @@ describe('styling', () => {
 
     it('should ignore a string containing spaces in a class object literal binding', () => {
       @Component({
-        template: `<div [class]="{a: true, 'hello there': true, c: true}" [class.extra]="true"></div>`,
-        standalone: true,
+        template: `<div
+          [class]="{a: true, 'hello there': true, c: true}"
+          [class.extra]="true"
+        ></div>`,
       })
       class Cmp {}
 
@@ -422,7 +433,6 @@ describe('styling', () => {
     it('should ignore an object literal in a class array binding', () => {
       @Component({
         template: `<div [class]="['a', {foo: true}, 'c']" [class.extra]="true"></div>`,
-        standalone: true,
       })
       class Cmp {}
 
@@ -435,7 +445,6 @@ describe('styling', () => {
     it('should handle a string array in a class array binding', () => {
       @Component({
         template: `<div [class]="['a', ['foo', 'bar'], 'c']" [class.extra]="true"></div>`,
-        standalone: true,
       })
       class Cmp {}
 
@@ -449,8 +458,8 @@ describe('styling', () => {
   it('should bind [class] as input to directive', () => {
     @Component({
       template: `
-      <div class="s1" [class]=" 'd1' " dir-shadows-class-input></div>
-      <div class="s2 {{'d2'}}" dir-shadows-class-input></div>
+        <div class="s1" [class]="'d1'" dir-shadows-class-input></div>
+        <div class="s2 {{ 'd2' }}" dir-shadows-class-input></div>
       `,
       standalone: false,
     })
@@ -489,9 +498,9 @@ describe('styling', () => {
   it('should not feed host classes back into shadow input', () => {
     @Component({
       template: `
-          <div class="s1" dir-shadows-class-input></div>
-          <div class="s1" [class]=" 'd1' " dir-shadows-class-input></div>
-          `,
+        <div class="s1" dir-shadows-class-input></div>
+        <div class="s1" [class]="'d1'" dir-shadows-class-input></div>
+      `,
       standalone: false,
     })
     class Cmp {}
@@ -529,9 +538,9 @@ describe('styling', () => {
   it('should not feed host style back into shadow input', () => {
     @Component({
       template: `
-          <div style="width: 1px;" dir-shadows-class-input></div>
-          <div style="width: 1px;" [style]=" 'height:1px;' " dir-shadows-class-input></div>
-          `,
+        <div style="width: 1px;" dir-shadows-class-input></div>
+        <div style="width: 1px;" [style]="'height:1px;'" dir-shadows-class-input></div>
+      `,
       standalone: false,
     })
     class Cmp {}
@@ -568,9 +577,7 @@ describe('styling', () => {
 
   it('should bind [class] as input to directive when both static and falsy dynamic values are present', () => {
     @Component({
-      template: `
-                <div class="s1" [class]="classBinding" dir-shadows-class-input></div>
-              `,
+      template: ` <div class="s1" [class]="classBinding" dir-shadows-class-input></div> `,
       standalone: false,
     })
     class Cmp {
@@ -616,8 +623,8 @@ describe('styling', () => {
   it('should bind [style] as input to directive', () => {
     @Component({
       template: `
-          <div style="color: red;" [style]=" 'width: 100px;' " dir-shadows-style-input></div>
-          `,
+        <div style="color: red;" [style]="'width: 100px;'" dir-shadows-style-input></div>
+      `,
       standalone: false,
     })
     class Cmp {}
@@ -674,9 +681,9 @@ describe('styling', () => {
   it('should recover from exceptions', () => {
     @Component({
       template: `
-      <div [id]="maybeThrow(id)">
-        <span my-dir [class]="maybeThrow(klass)" [class.foo]="maybeThrow(foo)"></span>
-      </div>
+        <div [id]="maybeThrow(id)">
+          <span my-dir [class]="maybeThrow(klass)" [class.foo]="maybeThrow(foo)"></span>
+        </div>
       `,
       standalone: false,
     })
@@ -741,9 +748,7 @@ describe('styling', () => {
 
   it('should render inline style and class attribute values on the element before a directive is instantiated', () => {
     @Component({
-      template: `
-        <div directive-expecting-styling style="width:200px" class="abc xyz"></div>
-      `,
+      template: ` <div directive-expecting-styling style="width:200px" class="abc xyz"></div> `,
       standalone: false,
     })
     class Cmp {}
@@ -773,9 +778,7 @@ describe('styling', () => {
 
   it('should only render the same initial styling values once before a directive runs', () => {
     @Component({
-      template: `
-        <div directive-expecting-styling style="width:200px" class="abc"></div>
-      `,
+      template: ` <div directive-expecting-styling style="width:200px" class="abc"></div> `,
       standalone: false,
     })
     class Cmp {}
@@ -804,13 +807,11 @@ describe('styling', () => {
   it('should ensure that static classes are assigned to ng-container elements and picked up for content projection', () => {
     @Component({
       template: `
-            <project>
-              outer
-              <ng-container class="inner">
-                inner
-              </ng-container>
-            </project>
-          `,
+        <project>
+          outer
+          <ng-container class="inner"> inner </ng-container>
+        </project>
+      `,
       standalone: false,
     })
     class MyApp {}
@@ -818,13 +819,13 @@ describe('styling', () => {
     @Component({
       selector: 'project',
       template: `
-            <div class="outer-area">
-              <ng-content></ng-content>
-            </div>
-            <div class="inner-area">
-              <ng-content select=".inner"></ng-content>
-            </div>
-          `,
+        <div class="outer-area">
+          <ng-content></ng-content>
+        </div>
+        <div class="inner-area">
+          <ng-content select=".inner"></ng-content>
+        </div>
+      `,
       standalone: false,
     })
     class ProjectCmp {}
@@ -932,11 +933,6 @@ describe('styling', () => {
 
     const div = fixture.nativeElement.querySelector('div') as HTMLDivElement;
     expect(div.style.backgroundImage).toBe('url("#test")');
-
-    expectPerfCounters({
-      rendererSetStyle: 1,
-      tNode: 2,
-    });
   });
 
   it('should set !important on a single property', () => {
@@ -957,11 +953,6 @@ describe('styling', () => {
     // We have to check the `style` attribute, because `element.style.prop` doesn't include
     // `!important`. Use a regex, because the different renderers produce different whitespace.
     expect(html).toMatch(/style=["|']width:\s*50px\s*!important/);
-
-    expectPerfCounters({
-      rendererSetStyle: 1,
-      tNode: 2,
-    });
   });
 
   it('should set !important that is not preceded by a space', () => {
@@ -982,11 +973,6 @@ describe('styling', () => {
     // We have to check the `style` attribute, because `element.style.prop` doesn't include
     // `!important`. Use a regex, because the different renderers produce different whitespace.
     expect(html).toMatch(/style=["|']width:\s*50px\s*!important/);
-
-    expectPerfCounters({
-      rendererSetStyle: 1,
-      tNode: 2,
-    });
   });
 
   it('should set !important on a dash-case property', () => {
@@ -1007,11 +993,6 @@ describe('styling', () => {
     // We have to check the `style` attribute, because `element.style.prop` doesn't include
     // `!important`. Use a regex, because the different renderers produce different whitespace.
     expect(html).toMatch(/style=["|']margin-right:\s*5px\s*!important/);
-
-    expectPerfCounters({
-      rendererSetStyle: 1,
-      tNode: 2,
-    });
   });
 
   it('should set !important on multiple properties', () => {
@@ -1032,11 +1013,6 @@ describe('styling', () => {
     // We have to check the `style` attribute, because `element.style.prop` doesn't include
     // `!important`. Use a regex, because the different renderers produce different whitespace.
     expect(html).toMatch(/style=["|']height:\s*25px\s*!important;\s*width:\s*50px\s*!important/);
-
-    expectPerfCounters({
-      rendererSetStyle: 2,
-      tNode: 2,
-    });
   });
 
   it('should set !important if some properties are !important and other are not', () => {
@@ -1057,11 +1033,6 @@ describe('styling', () => {
     // We have to check the `style` attribute, because `element.style.prop` doesn't include
     // `!important`. Use a regex, because the different renderers produce different whitespace.
     expect(html).toMatch(/style=["|']height:\s*25px;\s*width:\s*50px\s*!important/);
-
-    expectPerfCounters({
-      rendererSetStyle: 2,
-      tNode: 2,
-    });
   });
 
   it('should not write to the native element if a directive shadows the class input', () => {
@@ -1114,16 +1085,26 @@ describe('styling', () => {
   it('should support interpolations inside a class binding', () => {
     @Component({
       template: `
-        <div class="a{{one}}b{{two}}c{{three}}d{{four}}e{{five}}f{{six}}g{{seven}}h{{eight}}i{{nine}}j"></div>
-        <div class="a{{one}}b{{two}}c{{three}}d{{four}}e{{five}}f{{six}}g{{seven}}h{{eight}}i"></div>
-        <div class="a{{one}}b{{two}}c{{three}}d{{four}}e{{five}}f{{six}}g{{seven}}h"></div>
-        <div class="a{{one}}b{{two}}c{{three}}d{{four}}e{{five}}f{{six}}g"></div>
-        <div class="a{{one}}b{{two}}c{{three}}d{{four}}e{{five}}f"></div>
-        <div class="a{{one}}b{{two}}c{{three}}d{{four}}e"></div>
-        <div class="a{{one}}b{{two}}c{{three}}d"></div>
-        <div class="a{{one}}b{{two}}c"></div>
-        <div class="a{{one}}b"></div>
-        <div class="{{one}}"></div>
+        <div
+          class="a{{ one }}b{{ two }}c{{ three }}d{{ four }}e{{ five }}f{{ six }}g{{ seven }}h{{
+            eight
+          }}i{{ nine }}j"
+        ></div>
+        <div
+          class="a{{ one }}b{{ two }}c{{ three }}d{{ four }}e{{ five }}f{{ six }}g{{ seven }}h{{
+            eight
+          }}i"
+        ></div>
+        <div
+          class="a{{ one }}b{{ two }}c{{ three }}d{{ four }}e{{ five }}f{{ six }}g{{ seven }}h"
+        ></div>
+        <div class="a{{ one }}b{{ two }}c{{ three }}d{{ four }}e{{ five }}f{{ six }}g"></div>
+        <div class="a{{ one }}b{{ two }}c{{ three }}d{{ four }}e{{ five }}f"></div>
+        <div class="a{{ one }}b{{ two }}c{{ three }}d{{ four }}e"></div>
+        <div class="a{{ one }}b{{ two }}c{{ three }}d"></div>
+        <div class="a{{ one }}b{{ two }}c"></div>
+        <div class="a{{ one }}b"></div>
+        <div class="{{ one }}"></div>
       `,
       standalone: false,
     })
@@ -1184,16 +1165,34 @@ describe('styling', () => {
   it('should support interpolations inside a style binding', () => {
     @Component({
       template: `
-        <div style="content: &quot;a{{one}}b{{two}}c{{three}}d{{four}}e{{five}}f{{six}}g{{seven}}h{{eight}}i{{nine}}j&quot;"></div>
-        <div style="content: &quot;a{{one}}b{{two}}c{{three}}d{{four}}e{{five}}f{{six}}g{{seven}}h{{eight}}i&quot;"></div>
-        <div style="content: &quot;a{{one}}b{{two}}c{{three}}d{{four}}e{{five}}f{{six}}g{{seven}}h&quot;"></div>
-        <div style="content: &quot;a{{one}}b{{two}}c{{three}}d{{four}}e{{five}}f{{six}}g&quot;"></div>
-        <div style="content: &quot;a{{one}}b{{two}}c{{three}}d{{four}}e{{five}}f&quot;"></div>
-        <div style="content: &quot;a{{one}}b{{two}}c{{three}}d{{four}}e&quot;"></div>
-        <div style="content: &quot;a{{one}}b{{two}}c{{three}}d&quot;"></div>
-        <div style="content: &quot;a{{one}}b{{two}}c&quot;"></div>
-        <div style="content: &quot;a{{one}}b&quot;"></div>
-        <div style="{{self}}"></div>
+        <div
+          style="content: &quot;a{{ one }}b{{ two }}c{{ three }}d{{ four }}e{{ five }}f{{ six }}g{{
+            seven
+          }}h{{ eight }}i{{ nine }}j&quot;"
+        ></div>
+        <div
+          style="content: &quot;a{{ one }}b{{ two }}c{{ three }}d{{ four }}e{{ five }}f{{ six }}g{{
+            seven
+          }}h{{ eight }}i&quot;"
+        ></div>
+        <div
+          style="content: &quot;a{{ one }}b{{ two }}c{{ three }}d{{ four }}e{{ five }}f{{ six }}g{{
+            seven
+          }}h&quot;"
+        ></div>
+        <div
+          style="content: &quot;a{{ one }}b{{ two }}c{{ three }}d{{ four }}e{{ five }}f{{
+            six
+          }}g&quot;"
+        ></div>
+        <div
+          style="content: &quot;a{{ one }}b{{ two }}c{{ three }}d{{ four }}e{{ five }}f&quot;"
+        ></div>
+        <div style="content: &quot;a{{ one }}b{{ two }}c{{ three }}d{{ four }}e&quot;"></div>
+        <div style="content: &quot;a{{ one }}b{{ two }}c{{ three }}d&quot;"></div>
+        <div style="content: &quot;a{{ one }}b{{ two }}c&quot;"></div>
+        <div style="content: &quot;a{{ one }}b&quot;"></div>
+        <div style="{{ self }}"></div>
       `,
       standalone: false,
     })
@@ -1286,16 +1285,26 @@ describe('styling', () => {
   it('should support interpolations inside a style property binding', () => {
     @Component({
       template: `
-        <div style.font-family="f{{one}}{{two}}{{three}}{{four}}{{five}}{{six}}{{seven}}{{eight}}{{nine}}"></div>
-        <div style.font-family="f{{one}}{{two}}{{three}}{{four}}{{five}}{{six}}{{seven}}{{eight}}"></div>
-        <div style.font-family="f{{one}}{{two}}{{three}}{{four}}{{five}}{{six}}{{seven}}"></div>
-        <div style.font-family="f{{one}}{{two}}{{three}}{{four}}{{five}}{{six}}"></div>
-        <div style.font-family="f{{one}}{{two}}{{three}}{{four}}{{five}}"></div>
-        <div style.font-family="f{{one}}{{two}}{{three}}{{four}}"></div>
-        <div style.font-family="f{{one}}{{two}}{{three}}"></div>
-        <div style.font-family="f{{one}}{{two}}"></div>
-        <div style.font-family="f{{one}}"></div>
-        <div style.width="{{singleBinding}}"></div>
+        <div
+          style.font-family="f{{ one }}{{ two }}{{ three }}{{ four }}{{ five }}{{ six }}{{
+            seven
+          }}{{ eight }}{{ nine }}"
+        ></div>
+        <div
+          style.font-family="f{{ one }}{{ two }}{{ three }}{{ four }}{{ five }}{{ six }}{{
+            seven
+          }}{{ eight }}"
+        ></div>
+        <div
+          style.font-family="f{{ one }}{{ two }}{{ three }}{{ four }}{{ five }}{{ six }}{{ seven }}"
+        ></div>
+        <div style.font-family="f{{ one }}{{ two }}{{ three }}{{ four }}{{ five }}{{ six }}"></div>
+        <div style.font-family="f{{ one }}{{ two }}{{ three }}{{ four }}{{ five }}"></div>
+        <div style.font-family="f{{ one }}{{ two }}{{ three }}{{ four }}"></div>
+        <div style.font-family="f{{ one }}{{ two }}{{ three }}"></div>
+        <div style.font-family="f{{ one }}{{ two }}"></div>
+        <div style.font-family="f{{ one }}"></div>
+        <div style.width="{{ singleBinding }}"></div>
       `,
       standalone: false,
     })
@@ -1530,7 +1539,7 @@ describe('styling', () => {
   it('should write to a `className` input binding', () => {
     @Component({
       selector: 'comp',
-      template: `{{className}}`,
+      template: `{{ className }}`,
       standalone: false,
     })
     class Comp {
@@ -1551,7 +1560,7 @@ describe('styling', () => {
   it('should write combined class attribute and class binding to the class input', () => {
     @Component({
       selector: 'comp',
-      template: `{{className}}`,
+      template: `{{ className }}`,
       standalone: false,
     })
     class Comp {
@@ -1635,9 +1644,7 @@ describe('styling', () => {
 
   it('should allow multiple directives to set dynamic and static classes independent of one another', () => {
     @Component({
-      template: `
-        <div dir-one dir-two></div>
-      `,
+      template: ` <div dir-one dir-two></div> `,
       standalone: false,
     })
     class Cmp {}
@@ -1670,12 +1677,13 @@ describe('styling', () => {
   it('should not write empty style values to the DOM', () => {
     @Component({
       template: `
-          <div
-            [style.color]="null"
-            [style.--bg-color]="undefined"
-            [style.margin]="''"
-            [style.font-size]="'   '"></div>
-        `,
+        <div
+          [style.color]="null"
+          [style.--bg-color]="undefined"
+          [style.margin]="''"
+          [style.font-size]="'   '"
+        ></div>
+      `,
       standalone: false,
     })
     class Cmp {}
@@ -1790,12 +1798,14 @@ describe('styling', () => {
   it('should apply single property styles/classes to the element and default to any static styling values', () => {
     @Component({
       template: `
-        <div [style.width]="w"
-             [style.height]="h"
-             [style.opacity]="o"
-             style="width:200px; height:200px;"
-             [class.abc]="abc"
-             [class.xyz]="xyz"></div>
+        <div
+          [style.width]="w"
+          [style.height]="h"
+          [style.opacity]="o"
+          style="width:200px; height:200px;"
+          [class.abc]="abc"
+          [class.xyz]="xyz"
+        ></div>
       `,
       standalone: false,
     })
@@ -1860,9 +1870,7 @@ describe('styling', () => {
 
     @Component({
       template: `
-        <div [style.width]="w0"
-             [dir-that-sets-width]="w1"
-             [another-dir-that-sets-width]="w2">
+        <div [style.width]="w0" [dir-that-sets-width]="w1" [another-dir-that-sets-width]="w2"></div>
       `,
       standalone: false,
     })
@@ -1932,9 +1940,7 @@ describe('styling', () => {
 
     @Component({
       template: `
-        <comp-with-styling
-          [style.opacity]="opacity"
-          dir-with-styling>...</comp-with-styling>
+        <comp-with-styling [style.opacity]="opacity" dir-with-styling>...</comp-with-styling>
       `,
       standalone: false,
     })
@@ -1956,10 +1962,6 @@ describe('styling', () => {
     expect(element.style.height).toEqual('900px');
     expect(element.style.fontSize).toEqual('100px');
 
-    // once for the template flush and again for the host bindings
-    expect(ngDevMode!.rendererSetStyle).toEqual(4);
-    ngDevModeResetPerfCounters();
-
     component.opacity = '0.6';
     component.compWithStyling!.height = '100px';
     component.compWithStyling!.width = '100px';
@@ -1970,9 +1972,6 @@ describe('styling', () => {
     expect(element.style.width).toEqual('100px');
     expect(element.style.height).toEqual('100px');
     expect(element.style.fontSize).toEqual('50px');
-
-    // once for the template flush and again for the host bindings
-    expect(ngDevMode!.rendererSetStyle).toEqual(4);
   });
 
   it('should combine all styling across the template, directive and component host bindings', () => {
@@ -2006,7 +2005,9 @@ describe('styling', () => {
           [style.opacity]="opacity"
           [style.width]="width"
           [class.tpl]="tplClass"
-          dir-with-styling>...</comp-with-styling>
+          dir-with-styling
+          >...</comp-with-styling
+        >
       `,
       standalone: false,
     })
@@ -2076,9 +2077,7 @@ describe('styling', () => {
     }
 
     @Component({
-      template: `
-          <div sub-class-dir [style.width]="w3"></div>
-      `,
+      template: ` <div sub-class-dir [style.width]="w3"></div> `,
       standalone: false,
     })
     class Cmp {
@@ -2170,12 +2169,14 @@ describe('styling', () => {
 
     @Component({
       template: `
-        <div [style.width]="width"
-             [style]="map"
-             style="width:200px; font-size:99px"
-             dir-that-sets-styling
-             #dir
-             [class.xyz]="xyz"></div>
+        <div
+          [style.width]="width"
+          [style]="map"
+          style="width:200px; font-size:99px"
+          dir-that-sets-styling
+          #dir
+          [class.xyz]="xyz"
+        ></div>
       `,
       standalone: false,
     })
@@ -2239,12 +2240,14 @@ describe('styling', () => {
 
     @Component({
       template: `
-                <div #dir
-                  [style.width]="width"
-                  [style.height]="height"
-                  [style]="map"
-                  dir-that-sets-styling></div>
-              `,
+        <div
+          #dir
+          [style.width]="width"
+          [style.height]="height"
+          [style]="map"
+          dir-that-sets-styling
+        ></div>
+      `,
       standalone: false,
     })
     class Cmp {
@@ -2260,108 +2263,85 @@ describe('styling', () => {
     const fixture = TestBed.createComponent(Cmp);
     const comp = fixture.componentInstance;
 
-    ngDevModeResetPerfCounters();
     fixture.detectChanges();
     const element = fixture.nativeElement.querySelector('div');
 
-    assertStyleCounters(4, 0);
     assertStyle(element, 'width', '111px');
     assertStyle(element, 'height', '111px');
 
     comp.width = '222px';
-    ngDevModeResetPerfCounters();
     fixture.detectChanges();
 
-    assertStyleCounters(1, 0);
     assertStyle(element, 'width', '222px');
     assertStyle(element, 'height', '111px');
 
     comp.height = '222px';
-    ngDevModeResetPerfCounters();
     fixture.detectChanges();
 
-    assertStyleCounters(1, 0);
     assertStyle(element, 'width', '222px');
     assertStyle(element, 'height', '222px');
 
     comp.width = undefined;
-    ngDevModeResetPerfCounters();
     fixture.detectChanges();
 
-    assertStyleCounters(1, 0);
     assertStyle(element, 'width', '555px');
     assertStyle(element, 'height', '222px');
 
     comp.width = '123px';
     comp.height = '123px';
-    ngDevModeResetPerfCounters();
     fixture.detectChanges();
 
     assertStyle(element, 'width', '123px');
     assertStyle(element, 'height', '123px');
 
     comp.map = {};
-    ngDevModeResetPerfCounters();
     fixture.detectChanges();
 
     // No change, hence no write
-    assertStyleCounters(0, 0);
     assertStyle(element, 'width', '123px');
     assertStyle(element, 'height', '123px');
 
     comp.width = undefined;
-    ngDevModeResetPerfCounters();
     fixture.detectChanges();
 
-    assertStyleCounters(1, 0);
     assertStyle(element, 'width', '999px');
     assertStyle(element, 'height', '123px');
 
     comp.dir.map = null;
-    ngDevModeResetPerfCounters();
     fixture.detectChanges();
 
     // the width is only applied once
-    assertStyleCounters(1, 0);
     assertStyle(element, 'width', '0px');
     assertStyle(element, 'height', '123px');
 
     comp.dir.map = {width: '1000px', height: '1100px', color: 'red'};
-    ngDevModeResetPerfCounters();
     fixture.detectChanges();
 
-    assertStyleCounters(2, 0);
     assertStyle(element, 'width', '1000px');
     assertStyle(element, 'height', '123px');
     assertStyle(element, 'color', 'red');
 
     comp.height = undefined;
-    ngDevModeResetPerfCounters();
     fixture.detectChanges();
 
     // height gets applied twice and all other
     // values get applied
-    assertStyleCounters(1, 0);
     assertStyle(element, 'width', '1000px');
     assertStyle(element, 'height', '1100px');
     assertStyle(element, 'color', 'red');
 
     comp.map = {color: 'blue', width: '2000px', opacity: '0.5'};
-    ngDevModeResetPerfCounters();
     fixture.detectChanges();
 
-    assertStyleCounters(3, 0);
     assertStyle(element, 'width', '2000px');
     assertStyle(element, 'height', '1100px');
     assertStyle(element, 'color', 'blue');
     assertStyle(element, 'opacity', '0.5');
 
     comp.map = {color: 'blue', width: '2000px'};
-    ngDevModeResetPerfCounters();
     fixture.detectChanges();
 
     // all four are applied because the map was altered
-    assertStyleCounters(0, 1);
     assertStyle(element, 'width', '2000px');
     assertStyle(element, 'height', '1100px');
     assertStyle(element, 'color', 'blue');
@@ -2370,16 +2350,12 @@ describe('styling', () => {
 
   it('should not sanitize style values before writing them', () => {
     @Component({
-      template: `
-                        <div [style.width]="widthExp"
-                             [style.background-image]="bgImageExp"></div>
-                      `,
+      template: ` <div [style.width]="widthExp" [style.background-image]="bgImageExp"></div> `,
       standalone: false,
     })
     class Cmp {
       widthExp = '';
       bgImageExp = '';
-      styleMapExp: any = {};
     }
 
     TestBed.configureTestingModule({declarations: [Cmp]});
@@ -2402,12 +2378,9 @@ describe('styling', () => {
     expect(div.style.getPropertyValue('width')).toEqual('789px');
   });
 
-  it('should not sanitize style values before writing them', () => {
+  it('should not sanitize style values before writing them with styleMap', () => {
     @Component({
-      template: `
-                    <div [style.width]="widthExp"
-                         [style]="styleMapExp"></div>
-                  `,
+      template: ` <div [style.width]="widthExp" [style]="styleMapExp"></div> `,
       standalone: false,
     })
     class Cmp {
@@ -2439,10 +2412,7 @@ describe('styling', () => {
 
   it('should apply a unit to a style before writing it', () => {
     @Component({
-      template: `
-            <div [style.width.px]="widthExp"
-                 [style.height.em]="heightExp"></div>
-          `,
+      template: ` <div [style.width.px]="widthExp" [style.height.em]="heightExp"></div> `,
       standalone: false,
     })
     class Cmp {
@@ -2468,29 +2438,6 @@ describe('styling', () => {
     fixture.detectChanges();
 
     expect(getSortedStyle(div)).toEqual('width: 0px;');
-  });
-
-  it('should be able to bind a SafeValue to clip-path', () => {
-    @Component({
-      template: '<div [style.clip-path]="path"></div>',
-      standalone: false,
-    })
-    class Cmp {
-      path!: SafeStyle;
-    }
-
-    TestBed.configureTestingModule({declarations: [Cmp]});
-    const fixture = TestBed.createComponent(Cmp);
-    const sanitizer: DomSanitizer = TestBed.inject(DomSanitizer);
-
-    fixture.componentInstance.path = sanitizer.bypassSecurityTrustStyle('url("#test")');
-    fixture.detectChanges();
-
-    const html = fixture.nativeElement.innerHTML;
-
-    // Note that check the raw HTML, because (at the time of writing) the Node-based renderer
-    // that we use to run tests doesn't support `clip-path` in `CSSStyleDeclaration`.
-    expect(html).toMatch(/style=["|']clip-path:\s*url\(.*#test.*\)/);
   });
 
   it('should handle values wrapped into SafeValue', () => {
@@ -2580,12 +2527,7 @@ describe('styling', () => {
     }
 
     @Component({
-      template: `
-        <div #div
-              [style]="map"
-              dir-with-styling
-              dir-with-styling-part2></div>
-      `,
+      template: ` <div #div [style]="map" dir-with-styling dir-with-styling-part2></div> `,
       standalone: false,
     })
     class Cmp {
@@ -2610,11 +2552,10 @@ describe('styling', () => {
   it('should evaluate initial style/class values on a list of elements that changes', () => {
     @Component({
       template: `
-            <div *ngFor="let item of items"
-                  class="initial-class item-{{ item }}">
-              {{ item }}
-            </div>
-          `,
+        <div *ngFor="let item of items" class="initial-class item-{{ item }}">
+          {{ item }}
+        </div>
+      `,
       standalone: false,
     })
     class Cmp {
@@ -2667,12 +2608,12 @@ describe('styling', () => {
   it('should create and update multiple class bindings across multiple elements in a template', () => {
     @Component({
       template: `
-            <header class="header">header</header>
-            <div *ngFor="let item of items" class="item item-{{ item }}">
-              {{ item }}
-            </div>
-            <footer class="footer">footer</footer>
-          `,
+        <header class="header">header</header>
+        <div *ngFor="let item of items" class="item item-{{ item }}">
+          {{ item }}
+        </div>
+        <footer class="footer">footer</footer>
+      `,
       standalone: false,
     })
     class Cmp {
@@ -2725,10 +2666,10 @@ describe('styling', () => {
 
     @Component({
       template: `
-            <dir-one></dir-one>
-            <div class="initial"></div>
-            <dir-two></dir-two>
-          `,
+        <dir-one></dir-one>
+        <div class="initial"></div>
+        <dir-two></dir-two>
+      `,
       standalone: false,
     })
     class Cmp {}
@@ -2765,10 +2706,10 @@ describe('styling', () => {
 
     @Component({
       template: `
-                <div class="a" [style.width.px]="w" one></div>
-                <div class="b" [style.height.px]="h" one two></div>
-                <div class="c" [style.color]="c" two></div>
-              `,
+        <div class="a" [style.width.px]="w" one></div>
+        <div class="b" [style.height.px]="h" one two></div>
+        <div class="c" [style.color]="c" two></div>
+      `,
       standalone: false,
     })
     class Cmp {
@@ -2805,17 +2746,18 @@ describe('styling', () => {
 
     @Component({
       template: `
-                <div
-                  class="item"
-                  *ngFor="let item of items; let i = index"
-                  [style.color]="c"
-                  [style.height.px]="h * i"
-                  some-dir-with-styling>
-                  {{ item }}
-                </div>
-                <section [style.width.px]="w"></section>
-                <p [style.height.px]="h"></p>
-              `,
+        <div
+          class="item"
+          *ngFor="let item of items; let i = index"
+          [style.color]="c"
+          [style.height.px]="h * i"
+          some-dir-with-styling
+        >
+          {{ item }}
+        </div>
+        <section [style.width.px]="w"></section>
+        <p [style.height.px]="h"></p>
+      `,
       standalone: false,
     })
     class Cmp {
@@ -2894,12 +2836,7 @@ describe('styling', () => {
 
   it('should work with NO_CHANGE values if they are applied to bindings ', () => {
     @Component({
-      template: `
-            <div
-              [style.width]="w"
-              style.height="{{ h }}"
-              [style.opacity]="o"></div>
-          `,
+      template: ` <div [style.width]="w" style.height="{{ h }}" [style.opacity]="o"></div> `,
       standalone: false,
     })
     class Cmp {
@@ -2933,9 +2870,7 @@ describe('styling', () => {
 
   it('should allow [ngStyle] and [ngClass] to be used together', () => {
     @Component({
-      template: `
-            <div [ngClass]="c" [ngStyle]="s"></div>
-          `,
+      template: ` <div [ngClass]="c" [ngStyle]="s"></div> `,
       standalone: false,
     })
     class Cmp {
@@ -2955,9 +2890,7 @@ describe('styling', () => {
 
   it('should allow to reset style property value defined using ngStyle', () => {
     @Component({
-      template: `
-        <div [ngStyle]="s"></div>
-      `,
+      template: ` <div [ngStyle]="s"></div> `,
       standalone: false,
     })
     class Cmp {
@@ -2985,9 +2918,7 @@ describe('styling', () => {
   it('should allow detectChanges to be run in a property change that causes additional styling to be rendered', () => {
     @Component({
       selector: 'child',
-      template: `
-          <div [class.ready-child]="readyTpl"></div>
-        `,
+      template: ` <div [class.ready-child]="readyTpl"></div> `,
       standalone: false,
     })
     class ChildCmp {
@@ -3001,7 +2932,7 @@ describe('styling', () => {
       template: `
         <div>
           <div #template></div>
-          <p>{{prop}}</p>
+          <p>{{ prop }}</p>
         </div>
       `,
       host: {
@@ -3065,9 +2996,7 @@ describe('styling', () => {
   it('should allow detectChanges to be run in a hook that causes additional styling to be rendered', () => {
     @Component({
       selector: 'child',
-      template: `
-          <div [class.ready-child]="readyTpl"></div>
-        `,
+      template: ` <div [class.ready-child]="readyTpl"></div> `,
       standalone: false,
     })
     class ChildCmp {
@@ -3079,11 +3008,11 @@ describe('styling', () => {
     @Component({
       selector: 'parent',
       template: `
-          <div>
-            <div #template></div>
-            <p>{{prop}}</p>
-          </div>
-        `,
+        <div>
+          <div #template></div>
+          <p>{{ prop }}</p>
+        </div>
+      `,
       standalone: false,
     })
     class ParentCmp {
@@ -3136,11 +3065,8 @@ describe('styling', () => {
   it('should allow various duplicate properties to be defined in various styling maps within the template and directive styling bindings', () => {
     @Component({
       template: `
-           <div [style.width]="w"
-                [style.height]="h"
-                [style]="s1"
-                [dir-with-styling]="s2">
-         `,
+        <div [style.width]="w" [style.height]="h" [style]="s1" [dir-with-styling]="s2"></div>
+      `,
       standalone: false,
     })
     class Cmp {
@@ -3316,9 +3242,7 @@ describe('styling', () => {
 
   it('should throw an error if a prop-based style/class binding value is changed during checkNoChanges', () => {
     @Component({
-      template: `
-        <div [style.color]="color" [class.foo]="fooClass"></div>
-      `,
+      template: ` <div [style.color]="color" [class.foo]="fooClass"></div> `,
       standalone: false,
     })
     class Cmp {
@@ -3341,9 +3265,7 @@ describe('styling', () => {
 
   it('should throw an error if a map-based style/class binding value is changed during checkNoChanges', () => {
     @Component({
-      template: `
-                <div [style]="style" [class]="klass"></div>
-              `,
+      template: ` <div [style]="style" [class]="klass"></div> `,
       standalone: false,
     })
     class Cmp {
@@ -3366,7 +3288,7 @@ describe('styling', () => {
 
   it('should properly merge class interpolation with class-based directives', () => {
     @Component({
-      template: `<div class="zero {{one}}" [class.two]="true" [ngClass]="'three'"></div>`,
+      template: `<div class="zero {{ one }}" [class.two]="true" [ngClass]="'three'"></div>`,
       standalone: false,
     })
     class MyComp {
@@ -3387,8 +3309,8 @@ describe('styling', () => {
   it('should allow static and bound `class` attribute, but use last occurrence', () => {
     @Component({
       template: `
-        <div id="first" class="zero {{one}}" [class]="'two'"></div>
-        <div id="second" [class]="'two'" class="zero {{one}}"></div>
+        <div id="first" class="zero {{ one }}" [class]="'two'"></div>
+        <div id="second" [class]="'two'" class="zero {{ one }}"></div>
       `,
       standalone: false,
     })
@@ -3414,8 +3336,8 @@ describe('styling', () => {
   it('should allow static and bound `style` attribute, but use last occurrence', () => {
     @Component({
       template: `
-        <div id="first" style="margin: {{margin}}" [style]="'padding: 20px;'"></div>
-        <div id="second" [style]="'padding: 20px;'" style="margin: {{margin}}"></div>
+        <div id="first" style="margin: {{ margin }}" [style]="'padding: 20px;'"></div>
+        <div id="second" [style]="'padding: 20px;'" style="margin: {{ margin }}"></div>
       `,
       standalone: false,
     })
@@ -3528,11 +3450,13 @@ describe('styling', () => {
     it('should process <style> tag contents extracted from template', () => {
       @Component({
         template: `
-        <style>
-          div { width: 10px; }
-        </style>
-        <div></div>
-      `,
+          <style>
+            div {
+              width: 10px;
+            }
+          </style>
+          <div></div>
+        `,
         styles: ['div { width: 100px; }'],
         standalone: false,
       })
@@ -3552,13 +3476,12 @@ describe('styling', () => {
 
   it('should allow multiple styling bindings to work alongside property/attribute bindings', () => {
     @Component({
-      template: `
-        <div
-            dir-that-sets-styles
-            [style]="{'font-size': '300px'}"
-            [attr.title]="'my-title'"
-            [attr.data-foo]="'my-foo'">
-        </div>`,
+      template: ` <div
+        dir-that-sets-styles
+        [style]="{'font-size': '300px'}"
+        [attr.title]="'my-title'"
+        [attr.data-foo]="'my-foo'"
+      ></div>`,
       standalone: false,
     })
     class MyComp {}
@@ -3705,12 +3628,13 @@ describe('styling', () => {
 
     @Component({
       template: `
-          <my-comp-with-styling
-            style="height:1px; width:2px"
-            my-dir-with-styling
-            [style.height]="myHeight"
-            [style]="myStyles">
-          </my-comp-with-styling>
+        <my-comp-with-styling
+          style="height:1px; width:2px"
+          my-dir-with-styling
+          [style.height]="myHeight"
+          [style]="myStyles"
+        >
+        </my-comp-with-styling>
       `,
       standalone: false,
     })
@@ -3803,14 +3727,9 @@ describe('styling', () => {
 
     @Component({
       template: `
-           <div #div1
-             dir-that-sets-one-two
-             dir-that-sets-three-four></div>
-           <div #div2
-             [class.zero]="zero"
-             dir-that-sets-one-two
-             dir-that-sets-three-four></div>
-         `,
+        <div #div1 dir-that-sets-one-two dir-that-sets-three-four></div>
+        <div #div2 [class.zero]="zero" dir-that-sets-one-two dir-that-sets-three-four></div>
+      `,
       standalone: false,
     })
     class MyComp {
@@ -4031,7 +3950,11 @@ describe('styling', () => {
 
     @Component({
       template: `<span>Hello</span>`,
-      styles: `span {font-size: 10px}`,
+      styles: `
+        span {
+          font-size: 10px;
+        }
+      `,
       standalone: false,
     })
     class Cmp {}
@@ -4041,6 +3964,70 @@ describe('styling', () => {
 
     const span = fixture.nativeElement.querySelector('span') as HTMLElement;
     expect(getComputedStyle(span).getPropertyValue('font-size')).toBe('10px');
+  });
+
+  it('should class bindings to classes with special characters in a template', () => {
+    const className = `data-active:text-green-300/80`;
+
+    @Component({template: `<div [class.${className}]="value"></div>`})
+    class Cmp {
+      value = false;
+    }
+
+    const fixture = TestBed.createComponent(Cmp);
+    fixture.detectChanges();
+
+    const div = fixture.nativeElement.querySelector('div');
+    expect(div.classList).not.toContain(className);
+
+    fixture.componentInstance.value = true;
+    fixture.detectChanges();
+    expect(div.classList).toContain(className);
+
+    fixture.componentInstance.value = false;
+    fixture.detectChanges();
+    expect(div.classList).not.toContain(className);
+  });
+
+  it('should support class bindings to classes with special characters in a host binding', () => {
+    const className = `data-active:text-green-300/80`;
+
+    @Component({
+      template: ``,
+      host: {
+        [`[class.${className}]`]: 'value',
+      },
+    })
+    class Cmp {
+      value = false;
+    }
+
+    const fixture = TestBed.createComponent(Cmp);
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.classList).not.toContain(className);
+
+    fixture.componentInstance.value = true;
+    fixture.detectChanges();
+    expect(fixture.nativeElement.classList).toContain(className);
+
+    fixture.componentInstance.value = false;
+    fixture.detectChanges();
+    expect(fixture.nativeElement.classList).not.toContain(className);
+  });
+
+  it('should support Set in a class binding', () => {
+    @Component({
+      template: '<div [class]="classes" [class.extra]="true"></div>',
+    })
+    class Cmp {
+      classes = new Set(['a', 'b', 'c']);
+    }
+
+    const fixture = TestBed.createComponent(Cmp);
+    fixture.detectChanges();
+    const div = fixture.nativeElement.querySelector('div');
+    expect(div.getAttribute('class')).toBe('a b c extra');
   });
 
   describe('regression', () => {
@@ -4087,7 +4074,7 @@ describe('styling', () => {
       }
 
       @Component({
-        template: `<my-cmp *ngFor="let i of [1,2]" host-styling></my-cmp>`,
+        template: `<my-cmp *ngFor="let i of [1, 2]" host-styling></my-cmp>`,
         standalone: false,
       })
       class MyApp {
@@ -4112,7 +4099,7 @@ describe('styling', () => {
     it('should not bind [class] to @Input("className")', () => {
       @Component({
         selector: 'my-cmp',
-        template: `className = {{className}}`,
+        template: `className = {{ className }}`,
         standalone: false,
       })
       class MyCmp {
@@ -4133,7 +4120,7 @@ describe('styling', () => {
     it('should not bind class to @Input("className")', () => {
       @Component({
         selector: 'my-cmp',
-        template: `className = {{className}}`,
+        template: `className = {{ className }}`,
         standalone: false,
       })
       class MyCmp {
@@ -4152,11 +4139,6 @@ describe('styling', () => {
     });
   });
 });
-
-function assertStyleCounters(countForSet: number, countForRemove: number) {
-  expect(ngDevMode!.rendererSetStyle).toEqual(countForSet);
-  expect(ngDevMode!.rendererRemoveStyle).toEqual(countForRemove);
-}
 
 function assertStyle(element: HTMLElement, prop: string, value: any) {
   expect((element.style as any)[prop]).toEqual(value);

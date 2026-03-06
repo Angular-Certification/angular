@@ -4,7 +4,7 @@
 
 ```ts
 
-import { ApplicationConfig as ApplicationConfig_2 } from '@angular/core';
+import { ApplicationConfig } from '@angular/core';
 import { ApplicationRef } from '@angular/core';
 import { ComponentRef } from '@angular/core';
 import { DebugElement } from '@angular/core';
@@ -25,17 +25,19 @@ import { StaticProvider } from '@angular/core';
 import { Type } from '@angular/core';
 import { Version } from '@angular/core';
 
-// @public @deprecated
-export type ApplicationConfig = ApplicationConfig_2;
+// @public
+export function bootstrapApplication(rootComponent: Type<unknown>, options?: ApplicationConfig, context?: BootstrapContext): Promise<ApplicationRef>;
 
 // @public
-export function bootstrapApplication(rootComponent: Type<unknown>, options?: ApplicationConfig): Promise<ApplicationRef>;
+export interface BootstrapContext {
+    platformRef: PlatformRef;
+}
 
 // @public
 export class BrowserModule {
-    constructor(providersAlreadyPresent: boolean | null);
+    constructor();
     // (undocumented)
-    static ɵfac: i0.ɵɵFactoryDeclaration<BrowserModule, [{ optional: true; skipSelf: true; }]>;
+    static ɵfac: i0.ɵɵFactoryDeclaration<BrowserModule, never>;
     // (undocumented)
     static ɵinj: i0.ɵɵInjectorDeclaration<BrowserModule>;
     // (undocumented)
@@ -50,7 +52,7 @@ export class By {
 }
 
 // @public
-export function createApplication(options?: ApplicationConfig): Promise<ApplicationRef>;
+export function createApplication(options?: ApplicationConfig, context?: BootstrapContext): Promise<ApplicationRef>;
 
 // @public
 export function disableDebugTools(): void;
@@ -95,13 +97,13 @@ export abstract class EventManagerPlugin {
     abstract supports(eventName: string): boolean;
 }
 
-// @public
+// @public @deprecated
 export const HAMMER_GESTURE_CONFIG: InjectionToken<HammerGestureConfig>;
 
-// @public
+// @public @deprecated
 export const HAMMER_LOADER: InjectionToken<HammerLoader>;
 
-// @public
+// @public @deprecated
 export class HammerGestureConfig {
     buildHammer(element: HTMLElement): HammerInstance;
     events: string[];
@@ -124,10 +126,10 @@ export class HammerGestureConfig {
     static ɵprov: i0.ɵɵInjectableDeclaration<HammerGestureConfig>;
 }
 
-// @public
+// @public @deprecated
 export type HammerLoader = () => Promise<void>;
 
-// @public
+// @public @deprecated
 export class HammerModule {
     // (undocumented)
     static ɵfac: i0.ɵɵFactoryDeclaration<HammerModule, never>;

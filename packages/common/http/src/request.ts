@@ -5,10 +5,11 @@
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file at https://angular.dev/license
  */
-
+import {ɵRuntimeError as RuntimeError} from '@angular/core';
 import {HttpContext} from './context';
 import {HttpHeaders} from './headers';
 import {HttpParams} from './params';
+import {RuntimeErrorCode} from './errors';
 
 /**
  * Construction interface for `HttpRequest`s.
@@ -22,7 +23,17 @@ interface HttpRequestInit {
   params?: HttpParams;
   responseType?: 'arraybuffer' | 'blob' | 'json' | 'text';
   withCredentials?: boolean;
+  credentials?: RequestCredentials;
   transferCache?: {includeHeaders?: string[]} | boolean;
+  keepalive?: boolean;
+  priority?: RequestPriority;
+  cache?: RequestCache;
+  timeout?: number;
+  mode?: RequestMode;
+  redirect?: RequestRedirect;
+  referrer?: string;
+  integrity?: string;
+  referrerPolicy?: ReferrerPolicy;
 }
 
 /**
@@ -78,6 +89,40 @@ function isUrlSearchParams(value: any): value is URLSearchParams {
 }
 
 /**
+ * `Content-Type` is an HTTP header used to indicate the media type
+ * (also known as MIME type) of the resource being sent to the client
+ * or received from the server.
+ */
+export const CONTENT_TYPE_HEADER = 'Content-Type';
+
+/**
+ * The `Accept` header is an HTTP request header that indicates the media types
+ * (or content types) the client is willing to receive from the server.
+ */
+export const ACCEPT_HEADER = 'Accept';
+
+/**
+ * `text/plain` is a content type used to indicate that the content being
+ * sent is plain text with no special formatting or structured data
+ * like HTML, XML, or JSON.
+ */
+export const TEXT_CONTENT_TYPE = 'text/plain';
+
+/**
+ * `application/json` is a content type used to indicate that the content
+ * being sent is in the JSON format.
+ */
+export const JSON_CONTENT_TYPE = 'application/json';
+
+/**
+ * `application/json, text/plain, *\/*` is a content negotiation string often seen in the
+ * Accept header of HTTP requests. It indicates the types of content the client is willing
+ * to accept from the server, with a preference for `application/json` and `text/plain`,
+ * but also accepting any other type (*\/*).
+ */
+export const ACCEPT_HEADER_VALUE = `${JSON_CONTENT_TYPE}, ${TEXT_CONTENT_TYPE}, */*`;
+
+/**
  * An outgoing HTTP request with an optional typed body.
  *
  * `HttpRequest` represents an outgoing request, including URL, method,
@@ -100,7 +145,6 @@ export class HttpRequest<T> {
   /**
    * Outgoing headers for this request.
    */
-  // TODO(issue/24571): remove '!'.
   readonly headers!: HttpHeaders;
 
   /**
@@ -114,7 +158,8 @@ export class HttpRequest<T> {
    * Progress events are expensive (change detection runs on each event) and so
    * they should only be requested if the consumer intends to monitor them.
    *
-   * Note: The `FetchBackend` doesn't support progress report on uploads.
+   * Note: The default `HttpBackend` based on fetch, does not support progress report for uploads.
+   * Set the `HttpXhrBackend` with `withXhr()` if you need this feature.
    */
   readonly reportProgress: boolean = false;
 
@@ -122,6 +167,59 @@ export class HttpRequest<T> {
    * Whether this request should be sent with outgoing credentials (cookies).
    */
   readonly withCredentials: boolean = false;
+
+  /**
+   *  The credentials mode of the request, which determines how cookies and HTTP authentication are handled.
+   *  This can affect whether cookies are sent with the request, and how authentication is handled.
+   */
+  readonly credentials!: RequestCredentials;
+
+  /**
+   * When using the fetch implementation and set to `true`, the browser will not abort the associated request if the page that initiated it is unloaded before the request is complete.
+   */
+  readonly keepalive: boolean = false;
+
+  /**
+   * Controls how the request will interact with the browser's HTTP cache.
+   * This affects whether a response is retrieved from the cache, how it is stored, or if it bypasses the cache altogether.
+   */
+  readonly cache!: RequestCache;
+
+  /**
+   * Indicates the relative priority of the request. This may be used by the browser to decide the order in which requests are dispatched and resources fetched.
+   */
+  readonly priority!: RequestPriority;
+
+  /**
+   * The mode of the request, which determines how the request will interact with the browser's security model.
+   * This can affect things like CORS (Cross-Origin Resource Sharing) and same-origin policies.
+   */
+  readonly mode!: RequestMode;
+
+  /**
+   * The redirect mode of the request, which determines how redirects are handled.
+   * This can affect whether the request follows redirects automatically, or if it fails when a redirect occurs.
+   */
+  readonly redirect!: RequestRedirect;
+
+  /**
+   * The referrer of the request, which can be used to indicate the origin of the request.
+   * This is useful for security and analytics purposes.
+   * Value is a same-origin URL, "about:client", or the empty string, to set request's referrer.
+   */
+  readonly referrer!: string;
+
+  /**
+   * The integrity metadata of the request, which can be used to ensure the request is made with the expected content.
+   * A cryptographic hash of the resource to be fetched by request
+   */
+  readonly integrity!: string;
+
+  /**
+   * The referrer policy of the request, which can be used to specify the referrer information to be included with the request.
+   * This can affect the amount of referrer information sent with the request, and can be used to enhance privacy and security.
+   */
+  readonly referrerPolicy!: ReferrerPolicy;
 
   /**
    * The expected response type of the server.
@@ -142,11 +240,10 @@ export class HttpRequest<T> {
    * To pass a string representation of HTTP parameters in the URL-query-string format,
    * the `HttpParamsOptions`' `fromString` may be used. For example:
    *
-   * ```
+   * ```ts
    * new HttpParams({fromString: 'angular=awesome'})
    * ```
    */
-  // TODO(issue/24571): remove '!'.
   readonly params!: HttpParams;
 
   /**
@@ -159,6 +256,11 @@ export class HttpRequest<T> {
    */
   readonly transferCache?: {includeHeaders?: string[]} | boolean;
 
+  /**
+   * The timeout for the backend HTTP request in ms.
+   */
+  readonly timeout?: number;
+
   constructor(
     method: 'GET' | 'HEAD',
     url: string,
@@ -169,6 +271,15 @@ export class HttpRequest<T> {
       params?: HttpParams;
       responseType?: 'arraybuffer' | 'blob' | 'json' | 'text';
       withCredentials?: boolean;
+      credentials?: RequestCredentials;
+      keepalive?: boolean;
+      priority?: RequestPriority;
+      cache?: RequestCache;
+      mode?: RequestMode;
+      redirect?: RequestRedirect;
+      referrer?: string;
+      integrity?: string;
+      referrerPolicy?: ReferrerPolicy;
       /**
        * This property accepts either a boolean to enable/disable transferring cache for eligible
        * requests performed using `HttpClient`, or an object, which allows to configure cache
@@ -178,6 +289,7 @@ export class HttpRequest<T> {
        * particular request
        */
       transferCache?: {includeHeaders?: string[]} | boolean;
+      timeout?: number;
     },
   );
   constructor(
@@ -190,6 +302,16 @@ export class HttpRequest<T> {
       params?: HttpParams;
       responseType?: 'arraybuffer' | 'blob' | 'json' | 'text';
       withCredentials?: boolean;
+      credentials?: RequestCredentials;
+      keepalive?: boolean;
+      priority?: RequestPriority;
+      cache?: RequestCache;
+      timeout?: number;
+      mode?: RequestMode;
+      redirect?: RequestRedirect;
+      referrer?: string;
+      integrity?: string;
+      referrerPolicy?: ReferrerPolicy;
     },
   );
   constructor(
@@ -203,6 +325,15 @@ export class HttpRequest<T> {
       params?: HttpParams;
       responseType?: 'arraybuffer' | 'blob' | 'json' | 'text';
       withCredentials?: boolean;
+      credentials?: RequestCredentials;
+      keepalive?: boolean;
+      priority?: RequestPriority;
+      cache?: RequestCache;
+      mode?: RequestMode;
+      redirect?: RequestRedirect;
+      referrer?: string;
+      integrity?: string;
+      referrerPolicy?: ReferrerPolicy;
       /**
        * This property accepts either a boolean to enable/disable transferring cache for eligible
        * requests performed using `HttpClient`, or an object, which allows to configure cache
@@ -212,6 +343,7 @@ export class HttpRequest<T> {
        * particular request
        */
       transferCache?: {includeHeaders?: string[]} | boolean;
+      timeout?: number;
     },
   );
   constructor(
@@ -225,6 +357,16 @@ export class HttpRequest<T> {
       params?: HttpParams;
       responseType?: 'arraybuffer' | 'blob' | 'json' | 'text';
       withCredentials?: boolean;
+      credentials?: RequestCredentials;
+      keepalive?: boolean;
+      priority?: RequestPriority;
+      cache?: RequestCache;
+      timeout?: number;
+      mode?: RequestMode;
+      redirect?: RequestRedirect;
+      referrer?: string;
+      integrity?: string;
+      referrerPolicy?: ReferrerPolicy;
     },
   );
   constructor(
@@ -238,6 +380,15 @@ export class HttpRequest<T> {
       params?: HttpParams;
       responseType?: 'arraybuffer' | 'blob' | 'json' | 'text';
       withCredentials?: boolean;
+      credentials?: RequestCredentials;
+      keepalive?: boolean;
+      priority?: RequestPriority;
+      cache?: RequestCache;
+      mode?: RequestMode;
+      redirect?: RequestRedirect;
+      referrer?: string;
+      integrity?: string;
+      referrerPolicy?: ReferrerPolicy;
       /**
        * This property accepts either a boolean to enable/disable transferring cache for eligible
        * requests performed using `HttpClient`, or an object, which allows to configure cache
@@ -247,6 +398,7 @@ export class HttpRequest<T> {
        * particular request
        */
       transferCache?: {includeHeaders?: string[]} | boolean;
+      timeout?: number;
     },
   );
   constructor(
@@ -261,7 +413,17 @@ export class HttpRequest<T> {
           params?: HttpParams;
           responseType?: 'arraybuffer' | 'blob' | 'json' | 'text';
           withCredentials?: boolean;
+          credentials?: RequestCredentials;
+          keepalive?: boolean;
+          priority?: RequestPriority;
+          cache?: RequestCache;
+          mode?: RequestMode;
+          redirect?: RequestRedirect;
+          referrer?: string;
+          integrity?: string;
+          referrerPolicy?: ReferrerPolicy;
           transferCache?: {includeHeaders?: string[]} | boolean;
+          timeout?: number;
         }
       | null,
     fourth?: {
@@ -271,7 +433,17 @@ export class HttpRequest<T> {
       params?: HttpParams;
       responseType?: 'arraybuffer' | 'blob' | 'json' | 'text';
       withCredentials?: boolean;
+      credentials?: RequestCredentials;
+      keepalive?: boolean;
+      priority?: RequestPriority;
+      cache?: RequestCache;
+      mode?: RequestMode;
+      redirect?: RequestRedirect;
+      referrer?: string;
+      integrity?: string;
+      referrerPolicy?: ReferrerPolicy;
       transferCache?: {includeHeaders?: string[]} | boolean;
+      timeout?: number;
     },
   ) {
     this.method = method.toUpperCase();
@@ -295,6 +467,7 @@ export class HttpRequest<T> {
       // Normalize reportProgress and withCredentials.
       this.reportProgress = !!options.reportProgress;
       this.withCredentials = !!options.withCredentials;
+      this.keepalive = !!options.keepalive;
 
       // Override default response type of 'json' if one is provided.
       if (!!options.responseType) {
@@ -302,16 +475,61 @@ export class HttpRequest<T> {
       }
 
       // Override headers if they're provided.
-      if (!!options.headers) {
+      if (options.headers) {
         this.headers = options.headers;
       }
 
-      if (!!options.context) {
+      if (options.context) {
         this.context = options.context;
       }
 
-      if (!!options.params) {
+      if (options.params) {
         this.params = options.params;
+      }
+
+      if (options.priority) {
+        this.priority = options.priority;
+      }
+
+      if (options.cache) {
+        this.cache = options.cache;
+      }
+
+      if (options.credentials) {
+        this.credentials = options.credentials;
+      }
+
+      if (typeof options.timeout === 'number') {
+        // XHR will ignore any value below 1. AbortSignals only accept unsigned integers.
+
+        if (options.timeout < 1 || !Number.isInteger(options.timeout)) {
+          throw new RuntimeError(
+            RuntimeErrorCode.INVALID_TIMEOUT_VALUE,
+            ngDevMode ? '`timeout` must be a positive integer value' : '',
+          );
+        }
+
+        this.timeout = options.timeout;
+      }
+
+      if (options.mode) {
+        this.mode = options.mode;
+      }
+
+      if (options.redirect) {
+        this.redirect = options.redirect;
+      }
+
+      if (options.integrity) {
+        this.integrity = options.integrity;
+      }
+
+      if (options.referrer) {
+        this.referrer = options.referrer;
+      }
+
+      if (options.referrerPolicy) {
+        this.referrerPolicy = options.referrerPolicy;
       }
 
       // We do want to assign transferCache even if it's falsy (false is valid value)
@@ -413,7 +631,7 @@ export class HttpRequest<T> {
     // Technically, strings could be a form of JSON data, but it's safe enough
     // to assume they're plain strings.
     if (typeof this.body === 'string') {
-      return 'text/plain';
+      return TEXT_CONTENT_TYPE;
     }
     // `HttpUrlEncodedParams` has its own content-type.
     if (this.body instanceof HttpParams) {
@@ -425,7 +643,7 @@ export class HttpRequest<T> {
       typeof this.body === 'number' ||
       typeof this.body === 'boolean'
     ) {
-      return 'application/json';
+      return JSON_CONTENT_TYPE;
     }
     // No type could be inferred.
     return null;
@@ -439,7 +657,17 @@ export class HttpRequest<T> {
     params?: HttpParams;
     responseType?: 'arraybuffer' | 'blob' | 'json' | 'text';
     withCredentials?: boolean;
+    credentials?: RequestCredentials;
+    keepalive?: boolean;
+    priority?: RequestPriority;
+    cache?: RequestCache;
+    mode?: RequestMode;
+    redirect?: RequestRedirect;
+    referrer?: string;
+    integrity?: string;
+    referrerPolicy?: ReferrerPolicy;
     transferCache?: {includeHeaders?: string[]} | boolean;
+    timeout?: number;
     body?: T | null;
     method?: string;
     url?: string;
@@ -452,8 +680,18 @@ export class HttpRequest<T> {
     reportProgress?: boolean;
     params?: HttpParams;
     responseType?: 'arraybuffer' | 'blob' | 'json' | 'text';
+    keepalive?: boolean;
+    priority?: RequestPriority;
+    cache?: RequestCache;
+    mode?: RequestMode;
+    redirect?: RequestRedirect;
+    referrer?: string;
+    integrity?: string;
+    referrerPolicy?: ReferrerPolicy;
     withCredentials?: boolean;
+    credentials?: RequestCredentials;
     transferCache?: {includeHeaders?: string[]} | boolean;
+    timeout?: number;
     body?: V | null;
     method?: string;
     url?: string;
@@ -468,7 +706,17 @@ export class HttpRequest<T> {
       params?: HttpParams;
       responseType?: 'arraybuffer' | 'blob' | 'json' | 'text';
       withCredentials?: boolean;
+      credentials?: RequestCredentials;
+      keepalive?: boolean;
+      priority?: RequestPriority;
+      cache?: RequestCache;
+      mode?: RequestMode;
+      redirect?: RequestRedirect;
+      referrer?: string;
+      integrity?: string;
+      referrerPolicy?: ReferrerPolicy;
       transferCache?: {includeHeaders?: string[]} | boolean;
+      timeout?: number;
       body?: any | null;
       method?: string;
       url?: string;
@@ -481,10 +729,20 @@ export class HttpRequest<T> {
     const method = update.method || this.method;
     const url = update.url || this.url;
     const responseType = update.responseType || this.responseType;
-
+    const keepalive = update.keepalive ?? this.keepalive;
+    const priority = update.priority || this.priority;
+    const cache = update.cache || this.cache;
+    const mode = update.mode || this.mode;
+    const redirect = update.redirect || this.redirect;
+    const credentials = update.credentials || this.credentials;
+    const referrer = update.referrer || this.referrer;
+    const integrity = update.integrity || this.integrity;
+    const referrerPolicy = update.referrerPolicy || this.referrerPolicy;
     // Carefully handle the transferCache to differentiate between
     // `false` and `undefined` in the update args.
     const transferCache = update.transferCache ?? this.transferCache;
+
+    const timeout = update.timeout ?? this.timeout;
 
     // The body is somewhat special - a `null` value in update.body means
     // whatever current body is present is being overridden with an empty
@@ -532,6 +790,16 @@ export class HttpRequest<T> {
       responseType,
       withCredentials,
       transferCache,
+      keepalive,
+      cache,
+      priority,
+      timeout,
+      mode,
+      redirect,
+      credentials,
+      referrer,
+      integrity,
+      referrerPolicy,
     });
   }
 }

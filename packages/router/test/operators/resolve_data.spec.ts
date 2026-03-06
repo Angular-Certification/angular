@@ -8,11 +8,13 @@
 
 import {Component} from '@angular/core';
 import {TestBed} from '@angular/core/testing';
-import {provideRouter, Router} from '@angular/router';
-import {RouterTestingHarness} from '@angular/router/testing';
+import {ActivatedRouteSnapshot, provideRouter, Router} from '../../index';
+import {RouterTestingHarness} from '../../testing';
 import {EMPTY, interval, NEVER, of} from 'rxjs';
+import {useAutoTick} from '@angular/private/testing';
 
 describe('resolveData operator', () => {
+  useAutoTick();
   it('should take only the first emitted value of every resolver', async () => {
     TestBed.configureTestingModule({
       providers: [provideRouter([{path: '**', children: [], resolve: {e1: () => interval()}}])],
@@ -183,6 +185,38 @@ describe('resolveData operator', () => {
     const rootSnapshot = TestBed.inject(Router).routerState.root.firstChild!.snapshot;
     expect(rootSnapshot.title).toBe('a title');
     expect(rootSnapshot.firstChild!.title).toBe('b title');
+  });
+
+  it('can used parent data in child resolver', async () => {
+    @Component({
+      template: '',
+    })
+    class Empty {}
+
+    TestBed.configureTestingModule({
+      providers: [
+        provideRouter([
+          {
+            path: 'a',
+            resolve: {
+              aResolve: () => new Promise<string>((resolve) => setTimeout(() => resolve('a'), 5)),
+            },
+            children: [
+              {
+                path: 'b',
+                resolve: {
+                  bResolve: (route: ActivatedRouteSnapshot) => route.data['aResolve'] + 'b',
+                },
+                children: [{path: 'c', component: Empty}],
+              },
+            ],
+          },
+        ]),
+      ],
+    });
+    await RouterTestingHarness.create('/a/b/c');
+    const rootSnapshot = TestBed.inject(Router).routerState.root.firstChild!.snapshot;
+    expect(rootSnapshot.firstChild!.firstChild!.data).toEqual({bResolve: 'ab', aResolve: 'a'});
   });
 
   it('should inherit resolved data from parent of parent route', async () => {

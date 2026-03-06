@@ -16,6 +16,7 @@ import {
   makeBindingParser,
   R3ClassMetadata,
   R3DirectiveMetadata,
+  R3TargetBinder,
   WrappedNodeExpr,
 } from '@angular/compiler';
 import ts from 'typescript';
@@ -27,6 +28,7 @@ import {
 } from '../../../incremental/semantic_graph';
 import {
   ClassPropertyMapping,
+  DirectiveResources,
   DirectiveTypeCheckMeta,
   extractDirectiveTypeCheckMeta,
   HostDirectiveMeta,
@@ -35,6 +37,7 @@ import {
   MetadataReader,
   MetadataRegistry,
   MetaKind,
+  ResourceRegistry,
 } from '../../../metadata';
 import {PartialEvaluator} from '../../../partial_evaluator';
 import {PerfEvent, PerfRecorder} from '../../../perf';
@@ -45,7 +48,7 @@ import {
   Decorator,
   ReflectionHost,
 } from '../../../reflection';
-import {LocalModuleScopeRegistry} from '../../../scope';
+import {LocalModuleScopeRegistry, TypeCheckScopeRegistry} from '../../../scope';
 import {
   AnalysisOutput,
   CompilationMode,
@@ -71,12 +74,24 @@ import {
   ReferencesRegistry,
   resolveProvidersRequiringFactory,
   toFactoryMetadata,
+  UndecoratedMetadataExtractor,
   validateHostDirectives,
 } from '../../common';
 
-import {extractDirectiveMetadata} from './shared';
+import {
+  extractDirectiveMetadata,
+  extractHostBindingResources,
+  getDirectiveUndecoratedMetadataExtractor,
+  HostBindingNodes,
+} from './shared';
 import {DirectiveSymbol} from './symbol';
 import {JitDeclarationRegistry} from '../../common/src/jit_declaration_registry';
+import {
+  HostBindingsContext,
+  TypeCheckableDirectiveMeta,
+  TypeCheckContext,
+} from '../../../typecheck/api';
+import {createHostElement} from '../../../typecheck';
 
 const FIELD_DECORATORS = [
   'Input',
@@ -113,6 +128,8 @@ export interface DirectiveHandlerData {
   decorator: ts.Decorator | null;
   hostDirectives: HostDirectiveMeta[] | null;
   rawHostDirectives: ts.Expression | null;
+  hostBindingNodes: HostBindingNodes;
+  resources: DirectiveResources;
 }
 
 export class DirectiveDecoratorHandler
@@ -134,14 +151,25 @@ export class DirectiveDecoratorHandler
     private perf: PerfRecorder,
     private importTracker: ImportedSymbolsTracker,
     private includeClassMetadata: boolean,
+    private typeCheckScopeRegistry: TypeCheckScopeRegistry,
     private readonly compilationMode: CompilationMode,
     private readonly jitDeclarationRegistry: JitDeclarationRegistry,
+    private readonly resourceRegistry: ResourceRegistry,
     private readonly strictStandalone: boolean,
     private readonly implicitStandaloneValue: boolean,
-  ) {}
+    private readonly usePoisonedData: boolean,
+    private readonly typeCheckHostBindings: boolean,
+    private readonly emitDeclarationOnly: boolean,
+  ) {
+    this.undecoratedMetadataExtractor = getDirectiveUndecoratedMetadataExtractor(
+      reflector,
+      importTracker,
+    );
+  }
 
   readonly precedence = HandlerPrecedence.PRIMARY;
   readonly name = 'DirectiveDecoratorHandler';
+  private readonly undecoratedMetadataExtractor: UndecoratedMetadataExtractor;
 
   detect(
     node: ClassDeclaration,
@@ -194,6 +222,7 @@ export class DirectiveDecoratorHandler
       /* defaultSelector */ null,
       this.strictStandalone,
       this.implicitStandaloneValue,
+      this.emitDeclarationOnly,
     );
     // `extractDirectiveMetadata` returns `jitForced = true` when the `@Directive` has
     // set `jit: true`. In this case, compilation of the decorator is skipped. Returning
@@ -223,7 +252,14 @@ export class DirectiveDecoratorHandler
         hostDirectives: directiveResult.hostDirectives,
         rawHostDirectives: directiveResult.rawHostDirectives,
         classMetadata: this.includeClassMetadata
-          ? extractClassMetadata(node, this.reflector, this.isCore, this.annotateForClosureCompiler)
+          ? extractClassMetadata(
+              node,
+              this.reflector,
+              this.isCore,
+              this.annotateForClosureCompiler,
+              undefined,
+              this.undecoratedMetadataExtractor,
+            )
           : null,
         baseClass: readBaseClass(node, this.reflector, this.evaluator),
         typeCheckMeta: extractDirectiveTypeCheckMeta(node, directiveResult.inputs, this.reflector),
@@ -231,6 +267,12 @@ export class DirectiveDecoratorHandler
         isPoisoned: false,
         isStructural: directiveResult.isStructural,
         decorator: (decorator?.node as ts.Decorator | null) ?? null,
+        hostBindingNodes: directiveResult.hostBindingNodes,
+        resources: {
+          template: null,
+          styles: null,
+          hostBindings: extractHostBindingResources(directiveResult.hostBindingNodes),
+        },
       },
     };
   }
@@ -284,11 +326,63 @@ export class DirectiveDecoratorHandler
       // Instead, we statically analyze their imports to make a direct determination.
       assumedToExportProviders: false,
       isExplicitlyDeferred: false,
+      selectorlessEnabled: false,
+      localReferencedSymbols: null,
     });
 
+    this.resourceRegistry.registerResources(analysis.resources, node);
     this.injectableRegistry.registerInjectable(node, {
       ctorDeps: analysis.meta.deps,
     });
+  }
+
+  typeCheck(
+    ctx: TypeCheckContext,
+    node: ClassDeclaration,
+    meta: Readonly<DirectiveHandlerData>,
+  ): void {
+    // Currently type checking in directives is only supported for host bindings
+    // so we can skip everything below if type checking is disabled.
+    if (!this.typeCheckHostBindings) {
+      return;
+    }
+
+    if (!ts.isClassDeclaration(node) || (meta.isPoisoned && !this.usePoisonedData)) {
+      return;
+    }
+    const ref = new Reference(node);
+    const scope = this.typeCheckScopeRegistry.getTypeCheckScope(ref);
+    if (scope.isPoisoned && !this.usePoisonedData) {
+      // Don't type-check components that had errors in their scopes, unless requested.
+      return;
+    }
+
+    const hostElement = createHostElement(
+      'directive',
+      meta.meta.selector,
+      node,
+      meta.hostBindingNodes.literal,
+      meta.hostBindingNodes.bindingDecorators,
+      meta.hostBindingNodes.listenerDecorators,
+    );
+
+    if (hostElement !== null && scope.directivesOnHost !== null) {
+      const binder = new R3TargetBinder<TypeCheckableDirectiveMeta>(scope.matcher);
+      const hostBindingsContext: HostBindingsContext = {
+        node: hostElement,
+        directives: scope.directivesOnHost,
+        sourceMapping: {type: 'direct', node},
+      };
+
+      ctx.addDirective(
+        ref,
+        binder,
+        scope.schemas,
+        null,
+        hostBindingsContext,
+        meta.meta.isStandalone,
+      );
+    }
   }
 
   resolve(
@@ -342,7 +436,13 @@ export class DirectiveDecoratorHandler
       diagnostics.push(...hostDirectivesDiagnotics);
     }
 
-    return {diagnostics: diagnostics.length > 0 ? diagnostics : undefined};
+    if (diagnostics.length > 0) {
+      return {diagnostics};
+    }
+
+    // Note: we need to produce *some* sort of the data in order
+    // for the host binding diagnostics to be surfaced.
+    return {data: {}};
   }
 
   compileFull(

@@ -6,36 +6,36 @@
  * found in the LICENSE file at https://angular.dev/license
  */
 
+import {Subscription} from 'rxjs';
 import {
   ApplicationRef,
   ChangeDetectorRef,
   ComponentRef,
-  ɵChangeDetectionScheduler,
-  ɵNotificationSource,
   DebugElement,
+  ɵDeferBlockDetails as DeferBlockDetails,
+  ɵEffectScheduler as EffectScheduler,
   ElementRef,
   getDebugNode,
+  ɵgetDeferBlocks as getDeferBlocks,
   inject,
   NgZone,
+  ɵNoopNgZone as NoopNgZone,
   RendererFactory2,
   ViewRef,
-  ɵDeferBlockDetails as DeferBlockDetails,
-  ɵgetDeferBlocks as getDeferBlocks,
-  ɵNoopNgZone as NoopNgZone,
   ɵZONELESS_ENABLED as ZONELESS_ENABLED,
-  ɵPendingTasksInternal as PendingTasks,
-  ɵEffectScheduler as EffectScheduler,
-  ɵMicrotaskEffectScheduler as MicrotaskEffectScheduler,
-} from '@angular/core';
-import {Subscription} from 'rxjs';
+  ɵChangeDetectionScheduler,
+  ɵNotificationSource,
+} from '../../src/core';
+import {PendingTasksInternal} from '../../src/pending_tasks_internal';
 
+import {TestBedApplicationErrorHandler} from './application_error_handler';
 import {DeferBlockFixture} from './defer';
 import {ComponentFixtureAutoDetect, ComponentFixtureNoNgZone} from './test_bed_common';
-import {TestBedApplicationErrorHandler} from './application_error_handler';
 
 interface TestAppRef {
-  externalTestViews: Set<ViewRef>;
-  skipCheckNoChangesForExternalTestViews: Set<ViewRef>;
+  allTestViews: Set<ViewRef>;
+  includeAllTestViews: boolean;
+  autoDetectTestViews: Set<ViewRef>;
 }
 
 /**
@@ -84,12 +84,11 @@ export class ComponentFixture<T> {
   /** @internal */
   protected readonly _appRef = inject(ApplicationRef);
   private readonly _testAppRef = this._appRef as unknown as TestAppRef;
-  private readonly pendingTasks = inject(PendingTasks);
+  private readonly pendingTasks = inject(PendingTasksInternal);
   private readonly appErrorHandler = inject(TestBedApplicationErrorHandler);
   private readonly zonelessEnabled = inject(ZONELESS_ENABLED);
   private readonly scheduler = inject(ɵChangeDetectionScheduler);
   private readonly rootEffectScheduler = inject(EffectScheduler);
-  private readonly microtaskEffectScheduler = inject(MicrotaskEffectScheduler);
   private readonly autoDetectDefault = this.zonelessEnabled ? true : false;
   private autoDetect =
     inject(ComponentFixtureAutoDetect, {optional: true}) ?? this.autoDetectDefault;
@@ -99,7 +98,7 @@ export class ComponentFixture<T> {
   // TODO(atscott): Remove this from public API
   ngZone = this._noZoneOptionIsSet ? null : this._ngZone;
 
-  /** @nodoc */
+  /** @docs-private */
   constructor(public componentRef: ComponentRef<T>) {
     this.changeDetectorRef = componentRef.changeDetectorRef;
     this.elementRef = componentRef.location;
@@ -108,13 +107,15 @@ export class ComponentFixture<T> {
     this.nativeElement = this.elementRef.nativeElement;
     this.componentRef = componentRef;
 
+    this._testAppRef.allTestViews.add(this.componentRef.hostView);
     if (this.autoDetect) {
-      this._testAppRef.externalTestViews.add(this.componentRef.hostView);
+      this._testAppRef.autoDetectTestViews.add(this.componentRef.hostView);
       this.scheduler?.notify(ɵNotificationSource.ViewAttached);
       this.scheduler?.notify(ɵNotificationSource.MarkAncestorsForTraversal);
     }
     this.componentRef.hostView.onDestroy(() => {
-      this._testAppRef.externalTestViews.delete(this.componentRef.hostView);
+      this._testAppRef.allTestViews.delete(this.componentRef.hostView);
+      this._testAppRef.autoDetectTestViews.delete(this.componentRef.hostView);
     });
     // Create subscriptions outside the NgZone so that the callbacks run outside
     // of NgZone.
@@ -122,6 +123,17 @@ export class ComponentFixture<T> {
       this.subscriptions.add(
         this._ngZone.onError.subscribe({
           next: (error: any) => {
+            // The rethrow here is to ensure that errors don't go unreported. Since `NgZone.onHandleError` returns `false`,
+            // ZoneJS will not throw the error coming out of a task. Instead, the handling is defined by
+            // the chain of parent delegates and whether they indicate the error is handled in some way (by returning `false`).
+            // Unfortunately, 'onError' does not forward the information about whether the error was handled by a parent zone
+            // so cannot know here whether throwing is appropriate. As a half-solution, we can check to see if we're inside
+            // a fakeAsync context, which we know has its own error handling.
+            // https://github.com/angular/angular/blob/db2f2d99c82aae52d8a0ae46616c6411d070b35e/packages/zone.js/lib/zone-spec/fake-async-test.ts#L783-L784
+            // https://github.com/angular/angular/blob/db2f2d99c82aae52d8a0ae46616c6411d070b35e/packages/zone.js/lib/zone-spec/fake-async-test.ts#L473-L478
+            if (typeof Zone === 'undefined' || Zone.current.get('FakeAsyncTestZoneSpec')) {
+              return;
+            }
             throw error;
           },
         }),
@@ -133,7 +145,6 @@ export class ComponentFixture<T> {
    * Trigger a change detection cycle for the component.
    */
   detectChanges(checkNoChanges = true): void {
-    this.microtaskEffectScheduler.flush();
     const originalCheckNoChanges = this.componentRef.changeDetectorRef.checkNoChanges;
     try {
       if (!checkNoChanges) {
@@ -142,12 +153,10 @@ export class ComponentFixture<T> {
 
       if (this.zonelessEnabled) {
         try {
-          this._testAppRef.externalTestViews.add(this.componentRef.hostView);
+          this._testAppRef.includeAllTestViews = true;
           this._appRef.tick();
         } finally {
-          if (!this.autoDetect) {
-            this._testAppRef.externalTestViews.delete(this.componentRef.hostView);
-          }
+          this._testAppRef.includeAllTestViews = false;
         }
       } else {
         // Run the change detection inside the NgZone so that any async tasks as part of the change
@@ -162,7 +171,6 @@ export class ComponentFixture<T> {
     } finally {
       this.componentRef.changeDetectorRef.checkNoChanges = originalCheckNoChanges;
     }
-    this.microtaskEffectScheduler.flush();
   }
 
   /**
@@ -178,18 +186,28 @@ export class ComponentFixture<T> {
    * Also runs detectChanges once so that any existing change is detected.
    *
    * @param autoDetect Whether to autodetect changes. By default, `true`.
+   * @deprecated For `autoDetect: true`, use `autoDetectChanges()`.
+   * We have not seen a use-case for `autoDetect: false` but `changeDetectorRef.detach()` is a close equivalent.
    */
+  autoDetectChanges(autoDetect: boolean): void;
+  /**
+   * Enables automatically synchronizing the view, as it would in an application.
+   *
+   * Also runs detectChanges once so that any existing change is detected.
+   */
+  autoDetectChanges(): void;
   autoDetectChanges(autoDetect = true): void {
+    if (!autoDetect && this.zonelessEnabled) {
+      throw new Error('Cannot set autoDetect to false with zoneless change detection.');
+    }
     if (this._noZoneOptionIsSet && !this.zonelessEnabled) {
       throw new Error('Cannot call autoDetectChanges when ComponentFixtureNoNgZone is set.');
     }
 
-    if (autoDetect !== this.autoDetect) {
-      if (autoDetect) {
-        this._testAppRef.externalTestViews.add(this.componentRef.hostView);
-      } else {
-        this._testAppRef.externalTestViews.delete(this.componentRef.hostView);
-      }
+    if (autoDetect) {
+      this._testAppRef.autoDetectTestViews.add(this.componentRef.hostView);
+    } else {
+      this._testAppRef.autoDetectTestViews.delete(this.componentRef.hostView);
     }
 
     this.autoDetect = autoDetect;
@@ -201,7 +219,7 @@ export class ComponentFixture<T> {
    * yet.
    */
   isStable(): boolean {
-    return !this.pendingTasks.hasPendingTasks.value;
+    return !this.pendingTasks.hasPendingTasks;
   }
 
   /**
@@ -263,7 +281,8 @@ export class ComponentFixture<T> {
    */
   destroy(): void {
     this.subscriptions.unsubscribe();
-    this._testAppRef.externalTestViews.delete(this.componentRef.hostView);
+    this._testAppRef.autoDetectTestViews.delete(this.componentRef.hostView);
+    this._testAppRef.allTestViews.delete(this.componentRef.hostView);
     if (!this._isDestroyed) {
       this.componentRef.destroy();
       this._isDestroyed = true;

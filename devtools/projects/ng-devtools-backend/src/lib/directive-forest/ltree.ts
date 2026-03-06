@@ -91,6 +91,7 @@ export class LTreeStrategy {
         directives: [],
         component: null,
         hydration: null, // We know there is no hydration if we use the LTreeStrategy
+        defer: null, // neither there will be any defer
       };
     }
     for (let i = tNode.directiveStart; i < tNode.directiveEnd; i++) {
@@ -116,6 +117,7 @@ export class LTreeStrategy {
       directives,
       component,
       hydration: null, // We know there is no hydration if we use the LTreeStrategy
+      defer: null, // neither there will be any defer
     };
   }
 
@@ -145,7 +147,7 @@ export class LTreeStrategy {
     return nodes;
   }
 
-  build(element: Element, nodes: ComponentTreeNode[] = []): ComponentTreeNode[] {
+  build(element: Element, _: number): ComponentTreeNode[] {
     const ctx = (element as any).__ngContext__;
     const rootLView = ctx.lView ?? ctx;
     return this._extract(rootLView);

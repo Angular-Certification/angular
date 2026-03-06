@@ -6,12 +6,17 @@
  * found in the LICENSE file at https://angular.dev/license
  */
 
-import {CustomTransformers, defaultGatherDiagnostics, Program} from '@angular/compiler-cli';
-import {DocEntry} from '@angular/compiler-cli/src/ngtsc/docs';
-import * as api from '@angular/compiler-cli/src/transformers/api';
+import {
+  CustomTransformers,
+  defaultGatherDiagnostics,
+  Program,
+  createCompilerHost,
+  createProgram,
+} from '../../index';
+import {DocEntry} from '../../src/ngtsc/docs';
+import * as api from '../../src/transformers/api';
 import ts from 'typescript';
 
-import {createCompilerHost, createProgram} from '../../index';
 import {mainXi18n} from '../../src/extract_i18n';
 import {main, mainDiagnosticsForTest, readNgcCommandLineAndConfiguration} from '../../src/main';
 import {
@@ -36,9 +41,20 @@ type TsConfigOptionsValue =
   | null
   | TsConfigOptionsValue[]
   | {[key: string]: TsConfigOptionsValue};
+
 export type TsConfigOptions = {
   [key: string]: TsConfigOptionsValue;
 };
+
+type KnownKeys<T> = {
+  [K in keyof T as string extends K ? never : number extends K ? never : K]: T[K];
+};
+
+// We don't use ts.CompilerOptions directly since enum-based options
+// require additional mapping to be JSON-ified.
+type TsCompilerOptions = Partial<
+  Record<keyof KnownKeys<ts.CompilerOptions>, ts.CompilerOptionsValue>
+>;
 
 /**
  * Manages a temporary testing directory structure and environment for testing ngtsc by feeding it
@@ -79,6 +95,7 @@ export class NgtscTestEnvironment {
       `{
       "compilerOptions": {
         "emitDecoratorMetadata": false,
+        "strictPropertyInitialization": false,
         "experimentalDecorators": true,
         "skipLibCheck": true,
         "noImplicitAny": true,
@@ -86,13 +103,12 @@ export class NgtscTestEnvironment {
         "strictNullChecks": true,
         "outDir": "built",
         "rootDir": ".",
-        "baseUrl": ".",
         "allowJs": true,
         "declaration": true,
         "target": "es2015",
         "newLine": "lf",
         "module": "es2015",
-        "moduleResolution": "node",
+        "moduleResolution": "bundler",
         "lib": ["es2015", "dom"],
         "typeRoots": ["node_modules/@types"]
       },
@@ -208,18 +224,20 @@ export class NgtscTestEnvironment {
     }
   }
 
-  tsconfig(extraOpts: TsConfigOptions = {}, extraRootDirs?: string[], files?: string[]): void {
-    const tsconfig: {[key: string]: any} = {
+  tsconfig(
+    extraOpts: TsConfigOptions = {},
+    compilerOptions?: TsCompilerOptions,
+    files?: string[],
+  ): void {
+    let tsconfig: {[key: string]: any} = {
       extends: './tsconfig-base.json',
       angularCompilerOptions: extraOpts,
     };
     if (files !== undefined) {
       tsconfig['files'] = files;
     }
-    if (extraRootDirs !== undefined) {
-      tsconfig['compilerOptions'] = {
-        rootDirs: ['.', ...extraRootDirs],
-      };
+    if (compilerOptions !== undefined) {
+      tsconfig['compilerOptions'] = compilerOptions;
     }
     this.write('tsconfig.json', JSON.stringify(tsconfig, null, 2));
 

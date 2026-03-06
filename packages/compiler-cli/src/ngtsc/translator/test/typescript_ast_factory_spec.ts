@@ -59,7 +59,7 @@ describe('TypeScriptAstFactory', () => {
         items: [target, value],
         generate,
       } = setupExpressions(`x`, `42`);
-      const assignment = factory.createAssignment(target, value);
+      const assignment = factory.createAssignment(target, '=', value);
       expect(generate(assignment)).toEqual('x = 42');
     });
   });
@@ -72,6 +72,15 @@ describe('TypeScriptAstFactory', () => {
       } = setupExpressions(`17`, `42`);
       const assignment = factory.createBinaryExpression(left, '+', right);
       expect(generate(assignment)).toEqual('17 + 42');
+    });
+
+    it('should create a binary operation node for exponentiation', () => {
+      const {
+        items: [left, right],
+        generate,
+      } = setupExpressions(`2`, `3`);
+      const assignment = factory.createBinaryExpression(left, '**', right);
+      expect(generate(assignment)).toEqual('2 ** 3');
     });
   });
 
@@ -321,14 +330,15 @@ describe('TypeScriptAstFactory', () => {
   describe('createObjectLiteral()', () => {
     it('should create an object literal node, with the given properties', () => {
       const {
-        items: [prop1, prop2],
+        items: [prop1, prop2, prop3],
         generate,
-      } = setupExpressions('42', '"moo"');
+      } = setupExpressions('42', '"moo"', 'foo');
       const obj = factory.createObjectLiteral([
-        {propertyName: 'prop1', value: prop1, quoted: false},
-        {propertyName: 'prop2', value: prop2, quoted: true},
+        {propertyName: 'prop1', value: prop1, kind: 'property', quoted: false},
+        {propertyName: 'prop2', value: prop2, kind: 'property', quoted: true},
+        {expression: prop3, kind: 'spread'},
       ]);
-      expect(generate(obj)).toEqual('{ prop1: 42, "prop2": "moo" }');
+      expect(generate(obj)).toEqual('{ prop1: 42, "prop2": "moo", ...foo }');
     });
   });
 
@@ -409,6 +419,17 @@ describe('TypeScriptAstFactory', () => {
     });
   });
 
+  describe('createVoidExpression()', () => {
+    it('should create a void expression node', () => {
+      const {
+        items: [expr],
+        generate,
+      } = setupExpressions(`42`);
+      const voidExpr = factory.createVoidExpression(expr);
+      expect(generate(voidExpr)).toEqual('void 42');
+    });
+  });
+
   describe('createUnaryExpression()', () => {
     it('should create a unary expression with the operator and operand', () => {
       const {
@@ -452,6 +473,39 @@ describe('TypeScriptAstFactory', () => {
       const {generate} = setupStatements();
       const varDecl = factory.createVariableDeclaration('foo', null, 'let');
       expect(generate(varDecl)).toEqual('let foo;');
+    });
+  });
+
+  describe('createRegularExpressionLiteral()', () => {
+    it('should create a regular expressions without flags', () => {
+      const {generate} = setupStatements();
+      const regex = factory.createRegularExpressionLiteral('^\\d+-foo$', null);
+      expect(generate(regex)).toEqual('/^\\d+-foo$/');
+    });
+
+    it('should create a regular expressions with flags', () => {
+      const {generate} = setupStatements();
+      const regex = factory.createRegularExpressionLiteral('^\\d+-foo$', 'gi');
+      expect(generate(regex)).toEqual('/^\\d+-foo$/gi');
+    });
+  });
+
+  describe('createSpreadElement()', () => {
+    it('should create a spread element in an array', () => {
+      const {generate} = setupStatements();
+      const before = factory.createIdentifier('a');
+      const spread = factory.createSpreadElement(factory.createIdentifier('b'));
+      const array = factory.createArrayLiteral([before, spread]);
+      expect(generate(array)).toEqual('[a, ...b]');
+    });
+
+    it('should create a spread in a call expression', () => {
+      const {generate} = setupStatements();
+      const fn = factory.createIdentifier('fn');
+      const before = factory.createIdentifier('a');
+      const spread = factory.createSpreadElement(factory.createIdentifier('b'));
+      const call = factory.createCallExpression(fn, [before, spread], false);
+      expect(generate(call)).toEqual('fn(a, ...b)');
     });
   });
 

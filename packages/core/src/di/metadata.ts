@@ -18,6 +18,14 @@ import {DecoratorFlags, InternalInjectFlags} from './interface/injector';
  */
 export interface InjectDecorator {
   /**
+   * Warning: String tokens are not recommended.
+   *
+   * Use an InjectionToken or a class as a token instead.
+   */
+  (token: string): any;
+  new (token: string): Inject;
+
+  /**
    * Parameter decorator on a dependency parameter of a class constructor
    * that specifies a custom provider of the dependency.
    *
@@ -30,7 +38,7 @@ export interface InjectDecorator {
    *
    * {@example core/di/ts/metadata_spec.ts region='InjectWithoutDecorator'}
    *
-   * @see [Dependency Injection Guide](guide/di/dependency-injection
+   * @see [Dependency Injection Guide](guide/di/dependency-injection)
    *
    */
   (token: any): any;
@@ -82,7 +90,7 @@ export interface OptionalDecorator {
    *
    * {@example core/di/ts/metadata_spec.ts region='Optional'}
    *
-   * @see [Dependency Injection Guide](guide/di/dependency-injection.
+   * @see [Dependency Injection Guide](guide/di/dependency-injection)
    */
   (): any;
   new (): Optional;

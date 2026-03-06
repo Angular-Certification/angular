@@ -10,7 +10,6 @@ import {
   ChangeDetectionStrategy,
   Component,
   DestroyRef,
-  OnInit,
   PLATFORM_ID,
   computed,
   inject,
@@ -22,7 +21,6 @@ import {
   NavigationItem,
   NavigationList,
   NavigationState,
-  WINDOW,
   findNavigationItem,
   getBaseUrlAfterRedirects,
   getNavigationItemsTree,
@@ -30,12 +28,11 @@ import {
   shouldReduceMotion,
 } from '@angular/docs';
 import {distinctUntilChanged, filter, map, skip, startWith} from 'rxjs/operators';
-import {SUB_NAVIGATION_DATA} from '../../../sub-navigation-data';
-import {PagePrefix} from '../../enums/pages';
+import {SUB_NAVIGATION_DATA} from '../../../routing/sub-navigation-data';
 import {ActivatedRouteSnapshot, NavigationEnd, Router, RouterStateSnapshot} from '@angular/router';
 import {isPlatformBrowser} from '@angular/common';
-import {trigger, transition, style, animate} from '@angular/animations';
 import {PRIMARY_NAV_ID, SECONDARY_NAV_ID} from '../../constants/element-ids';
+import {PAGE_PREFIX} from '../../constants/pages';
 
 export const ANIMATION_DURATION = 500;
 
@@ -45,46 +42,36 @@ export const ANIMATION_DURATION = 500;
   templateUrl: './secondary-navigation.component.html',
   styleUrls: ['./secondary-navigation.component.scss'],
   changeDetection: ChangeDetectionStrategy.OnPush,
-  animations: [
-    trigger('leaveAnimation', [
-      transition(':leave', [
-        style({transform: 'translateX(0%)'}),
-        animate(
-          `${ANIMATION_DURATION}ms ${ANIMATION_DURATION}ms ease-out`,
-          style({transform: 'translateX(100%)'}),
-        ),
-      ]),
-    ]),
-  ],
 })
-export class SecondaryNavigation implements OnInit {
+export class SecondaryNavigation {
   private readonly destroyRef = inject(DestroyRef);
   private readonly navigationState = inject(NavigationState);
   private readonly platformId = inject(PLATFORM_ID);
   private readonly router = inject(Router);
 
-  readonly isSecondaryNavVisible = this.navigationState.isMobileNavVisible;
+  protected readonly isSecondaryNavVisible = this.navigationState.isMobileNavVisible;
   readonly primaryActiveRouteItem = this.navigationState.primaryActiveRouteItem;
-  readonly maxVisibleLevelsOnSecondaryNav = computed(() =>
-    this.primaryActiveRouteItem() === PagePrefix.REFERENCE ? 1 : 2,
+  protected readonly maxVisibleLevelsOnSecondaryNav = computed(() =>
+    this.primaryActiveRouteItem() === PAGE_PREFIX.REFERENCE ? 1 : 2,
   );
-  readonly navigationItemsSlides = this.navigationState.expandedItems;
-  navigationItems: NavigationItem[] | undefined;
+  protected readonly navigationItemsSlides = this.navigationState.expandedItems;
 
-  translateX = computed(() => {
-    const level = this.navigationState.expandedItems()?.length ?? 0;
+  protected navigationItems: NavigationItem[] | undefined;
+
+  protected readonly translateX = computed(() => {
+    const level = this.navigationState.level();
     return `translateX(${-level * 100}%)`;
   });
-  transition = signal('0ms');
+  protected readonly transition = signal('0ms');
 
-  readonly PRIMARY_NAV_ID = PRIMARY_NAV_ID;
-  readonly SECONDARY_NAV_ID = SECONDARY_NAV_ID;
+  protected readonly PRIMARY_NAV_ID = PRIMARY_NAV_ID;
+  protected readonly SECONDARY_NAV_ID = SECONDARY_NAV_ID;
 
   private readonly routeMap: Record<string, NavigationItem[]> = {
-    [PagePrefix.REFERENCE]: getNavigationItemsTree(SUB_NAVIGATION_DATA.reference, (tree) =>
+    [PAGE_PREFIX.REFERENCE]: getNavigationItemsTree(SUB_NAVIGATION_DATA.reference, (tree) =>
       markExternalLinks(tree),
     ),
-    [PagePrefix.DOCS]: getNavigationItemsTree(SUB_NAVIGATION_DATA.docs, (tree) =>
+    [PAGE_PREFIX.DOCS]: getNavigationItemsTree(SUB_NAVIGATION_DATA.docs, (tree) =>
       markExternalLinks(tree),
     ),
   };
@@ -102,7 +89,7 @@ export class SecondaryNavigation implements OnInit {
     takeUntilDestroyed(this.destroyRef),
   );
 
-  ngOnInit(): void {
+  constructor() {
     this.navigationState.cleanExpandedState();
     this.listenToPrimaryRouteChange();
     this.setActiveRouteOnNavigationEnd();
@@ -112,7 +99,7 @@ export class SecondaryNavigation implements OnInit {
     }
   }
 
-  close(): void {
+  protected close(): void {
     this.navigationState.setMobileNavigationListVisibility(false);
   }
 
@@ -140,7 +127,7 @@ export class SecondaryNavigation implements OnInit {
          */
         const shouldExpandItem = (node: NavigationItem): boolean =>
           !!node.level &&
-          (this.primaryActiveRouteItem() === PagePrefix.REFERENCE
+          (this.primaryActiveRouteItem() === PAGE_PREFIX.REFERENCE
             ? node.level > 0
             : node.level > 1);
 
@@ -148,7 +135,7 @@ export class SecondaryNavigation implements OnInit {
         // It protect us from displaying second level of the navigation when user clicks on `Reference`,
         // Because in this situation we want to display the first level, which contains, in addition to the API Reference, also the CLI Reference, Error Encyclopedia etc.
         const skipExpandPredicateFn = (node: NavigationItem): boolean =>
-          node.path === PagePrefix.API;
+          node.path === PAGE_PREFIX.API;
 
         this.navigationState.expandItemHierarchy(
           activeNavigationItem,
@@ -189,7 +176,7 @@ export class SecondaryNavigation implements OnInit {
     const routeMap = this.routeMap[this.primaryActiveRouteItem()!];
     this.navigationItems = routeMap
       ? getNavigationItemsTree(routeMap, (item) => {
-          item.isExpanded = this.primaryActiveRouteItem() === PagePrefix.DOCS && item.level === 1;
+          item.isExpanded = this.primaryActiveRouteItem() === PAGE_PREFIX.DOCS && item.level === 1;
         })
       : [];
   }

@@ -6,7 +6,7 @@
  * found in the LICENSE file at https://angular.dev/license
  */
 import {leadingComment} from '@angular/compiler';
-import {template, types as t} from '@babel/core';
+import {types as t, template} from '@babel/core';
 import _generate from '@babel/generator';
 
 import {BabelAstFactory} from '../../src/ast/babel_ast_factory';
@@ -25,7 +25,7 @@ describe('BabelAstFactory', () => {
   beforeEach(() => (factory = new BabelAstFactory('/original.ts')));
 
   describe('attachComments()', () => {
-    it('should add the comments to the given statement', () => {
+    it('should add the comments to the given statement (assignment)', () => {
       const stmt = statement.ast`x = 10;`;
       factory.attachComments(stmt, [
         leadingComment('comment 1', true),
@@ -62,7 +62,7 @@ describe('BabelAstFactory', () => {
     it('should create an assignment node using the target and value expressions', () => {
       const target = expression.ast`x`;
       const value = expression.ast`42`;
-      const assignment = factory.createAssignment(target, value);
+      const assignment = factory.createAssignment(target, '=', value);
       expect(generate(assignment).code).toEqual('x = 42');
     });
   });
@@ -81,6 +81,13 @@ describe('BabelAstFactory', () => {
       const expr = factory.createBinaryExpression(left, '&&', right);
       expect(t.isLogicalExpression(expr)).toBe(true);
       expect(generate(expr).code).toEqual('17 && 42');
+    });
+
+    it('should create a binary operation node for exponentiation', () => {
+      const left = expression.ast`2`;
+      const right = expression.ast`3`;
+      const expr = factory.createBinaryExpression(left, '**', right);
+      expect(generate(expr).code).toEqual('2 ** 3');
     });
   });
 
@@ -281,11 +288,15 @@ describe('BabelAstFactory', () => {
     it('should create an object literal node, with the given properties', () => {
       const prop1 = expression.ast`42`;
       const prop2 = expression.ast`"moo"`;
+      const prop3 = expression.ast`foo`;
       const obj = factory.createObjectLiteral([
-        {propertyName: 'prop1', value: prop1, quoted: false},
-        {propertyName: 'prop2', value: prop2, quoted: true},
+        {propertyName: 'prop1', value: prop1, kind: 'property', quoted: false},
+        {propertyName: 'prop2', value: prop2, kind: 'property', quoted: true},
+        {expression: prop3, kind: 'spread'},
       ]);
-      expect(generate(obj).code).toEqual(['{', '  prop1: 42,', '  "prop2": "moo"', '}'].join('\n'));
+      expect(generate(obj).code).toEqual(
+        ['{', '  prop1: 42,', '  "prop2": "moo",', '  ...foo', '}'].join('\n'),
+      );
     });
   });
 
@@ -348,6 +359,14 @@ describe('BabelAstFactory', () => {
     });
   });
 
+  describe('createVoidExpression()', () => {
+    it('should create a void expression node', () => {
+      const expr = expression.ast`42`;
+      const voidExpr = factory.createVoidExpression(expr);
+      expect(generate(voidExpr).code).toEqual('void 42');
+    });
+  });
+
   describe('createUnaryExpression()', () => {
     it('should create a unary expression with the operator and operand', () => {
       const expr = expression.ast`value`;
@@ -378,6 +397,35 @@ describe('BabelAstFactory', () => {
     it('should create an uninitialized variable declaration statement node for the given variable name and a null initializer', () => {
       const varDecl = factory.createVariableDeclaration('foo', null, 'let');
       expect(generate(varDecl).code).toEqual('let foo;');
+    });
+  });
+
+  describe('createRegularExpressionLiteral()', () => {
+    it('should create a regular expressions without flags', () => {
+      const regex = factory.createRegularExpressionLiteral('^\\d+-foo$', null);
+      expect(generate(regex).code).toEqual('/^\\d+-foo$/');
+    });
+
+    it('should create a regular expressions with flags', () => {
+      const regex = factory.createRegularExpressionLiteral('^\\d+-foo$', 'gi');
+      expect(generate(regex).code).toEqual('/^\\d+-foo$/gi');
+    });
+  });
+
+  describe('createSpreadElement()', () => {
+    it('should create a spread element in an array', () => {
+      const before = factory.createIdentifier('a');
+      const spread = factory.createSpreadElement(factory.createIdentifier('b'));
+      const array = factory.createArrayLiteral([before, spread]);
+      expect(generate(array).code).toEqual('[a, ...b]');
+    });
+
+    it('should create a spread in a call expression', () => {
+      const fn = factory.createIdentifier('fn');
+      const before = factory.createIdentifier('a');
+      const spread = factory.createSpreadElement(factory.createIdentifier('b'));
+      const call = factory.createCallExpression(fn, [before, spread], false);
+      expect(generate(call).code).toEqual('fn(a, ...b)');
     });
   });
 

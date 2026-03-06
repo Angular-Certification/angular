@@ -22,29 +22,36 @@ import {
   ErrorHandler,
   inject,
   Input,
+  provideZoneChangeDetection,
   signal,
   TemplateRef,
   Type,
   ViewChild,
   ViewContainerRef,
-} from '@angular/core';
-import {provideExperimentalCheckNoChangesForDebug} from '@angular/core/src/change_detection/scheduling/exhaustive_check_no_changes';
-import {ComponentFixture, TestBed} from '@angular/core/testing';
-import {expect} from '@angular/platform-browser/testing/src/matchers';
+} from '../../src/core';
+import {provideCheckNoChangesConfig} from '../../src/change_detection/provide_check_no_changes_config';
+import {ComponentFixture, TestBed} from '../../testing';
+import {expect} from '@angular/private/testing/matchers';
 import {of} from 'rxjs';
 
 describe('change detection for transplanted views', () => {
+  beforeEach(() => {
+    TestBed.configureTestingModule({
+      providers: [provideZoneChangeDetection()],
+    });
+  });
   describe('when declaration appears before insertion', () => {
     @Component({
       selector: 'onpush-insert-comp',
       changeDetection: ChangeDetectionStrategy.OnPush,
       template: `
-        OnPushInsertComp({{greeting}})
+        OnPushInsertComp({{ greeting }})
         <div *ngIf="true">
           <!-- Add extra level of embedded view to ensure we can handle nesting -->
           <ng-container
-              [ngTemplateOutlet]="template"
-              [ngTemplateOutletContext]="{$implicit: greeting}">
+            [ngTemplateOutlet]="template"
+            [ngTemplateOutletContext]="{$implicit: greeting}"
+          >
           </ng-container>
         </div>
       `,
@@ -93,10 +100,8 @@ describe('change detection for transplanted views', () => {
     @Component({
       selector: `check-always-declare-comp`,
       template: `
-        DeclareComp({{name}})
-        <ng-template #myTmpl let-greeting>
-          {{greeting}} {{logName()}}!
-        </ng-template>
+        DeclareComp({{ name }})
+        <ng-template #myTmpl let-greeting> {{ greeting }} {{ logName() }}! </ng-template>
       `,
       standalone: false,
     })
@@ -109,11 +114,8 @@ describe('change detection for transplanted views', () => {
 
     @Component({
       selector: `onpush-declare-comp`,
-      template: `
-        OnPushDeclareComp({{name}})
-        <ng-template #myTmpl let-greeting>
-          {{greeting}} {{logName()}}!
-        </ng-template>`,
+      template: ` OnPushDeclareComp({{ name }})
+        <ng-template #myTmpl let-greeting> {{ greeting }} {{ logName() }}! </ng-template>`,
       changeDetection: ChangeDetectionStrategy.OnPush,
       standalone: false,
     })
@@ -127,9 +129,9 @@ describe('change detection for transplanted views', () => {
     @Component({
       selector: `signal-onpush-declare-comp`,
       template: `
-        SignalOnPushDeclareComp({{name()}})
+        SignalOnPushDeclareComp({{ name() }})
         <ng-template #myTmpl let-greeting>
-          {{greeting}} {{surname()}}{{logExecutionContext()}}!
+          {{ greeting }} {{ surname() }}{{ logExecutionContext() }}!
         </ng-template>
       `,
       changeDetection: ChangeDetectionStrategy.OnPush,
@@ -165,11 +167,11 @@ describe('change detection for transplanted views', () => {
 
     @Component({
       template: `
-      <check-always-declare-comp *ngIf="showCheckAlwaysDeclare" />
-      <onpush-declare-comp *ngIf="showOnPushDeclare" />
-      <signal-onpush-declare-comp *ngIf="showSignalOnPushDeclare" />
+        <check-always-declare-comp *ngIf="showCheckAlwaysDeclare" />
+        <onpush-declare-comp *ngIf="showOnPushDeclare" />
+        <signal-onpush-declare-comp *ngIf="showSignalOnPushDeclare" />
 
-      <onpush-insert-comp *ngIf="showOnPushInsert" />
+        <onpush-insert-comp *ngIf="showOnPushInsert" />
       `,
       standalone: false,
     })
@@ -465,10 +467,9 @@ describe('change detection for transplanted views', () => {
   describe('backwards references', () => {
     @Component({
       selector: 'insertion',
-      template: `
-            <div>Insertion({{name}})</div>
-            <ng-container [ngTemplateOutlet]="template" [ngTemplateOutletContext]="{$implicit: name}">
-            </ng-container>`,
+      template: ` <div>Insertion({{ name }})</div>
+        <ng-container [ngTemplateOutlet]="template" [ngTemplateOutletContext]="{$implicit: name}">
+        </ng-container>`,
       changeDetection: ChangeDetectionStrategy.OnPush,
       standalone: false,
     })
@@ -481,13 +482,13 @@ describe('change detection for transplanted views', () => {
     @Component({
       selector: 'declaration',
       template: `
-          <div>Declaration({{name}})</div>
-          <ng-template #template let-contextName>
-            <div>{{incrementChecks()}}</div>
-            <div>TemplateDeclaration({{name}})</div>
-            <div>TemplateContext({{contextName}})</div>
-          </ng-template>
-        `,
+        <div>Declaration({{ name }})</div>
+        <ng-template #template let-contextName>
+          <div>{{ incrementChecks() }}</div>
+          <div>TemplateDeclaration({{ name }})</div>
+          <div>TemplateContext({{ contextName }})</div>
+        </ng-template>
+      `,
       changeDetection: ChangeDetectionStrategy.OnPush,
       standalone: false,
     })
@@ -505,10 +506,9 @@ describe('change detection for transplanted views', () => {
 
     @Component({
       template: `
-        <insertion *ngIf="showInsertion" [template]="declaration?.template">
-        </insertion>
+        <insertion *ngIf="showInsertion" [template]="declaration?.template"> </insertion>
         <declaration></declaration>
-        `,
+      `,
       standalone: false,
     })
     class App {
@@ -617,8 +617,8 @@ describe('change detection for transplanted views', () => {
     }
     @Component({
       template: `
-      <ng-template #template>{{value}}</ng-template>
-      <on-push-insertion-host [template]="template"></on-push-insertion-host>
+        <ng-template #template>{{ value }}</ng-template>
+        <on-push-insertion-host [template]="template"></on-push-insertion-host>
       `,
       changeDetection: ChangeDetectionStrategy.OnPush,
       standalone: false,
@@ -641,8 +641,8 @@ describe('change detection for transplanted views', () => {
     }
     @Component({
       template: `
-      <ng-template #template>{{value}}</ng-template>
-      <on-push-insertion-host [template]="template"></on-push-insertion-host>
+        <ng-template #template>{{ value }}</ng-template>
+        <on-push-insertion-host [template]="template"></on-push-insertion-host>
       `,
       standalone: false,
     })
@@ -729,7 +729,7 @@ describe('change detection for transplanted views', () => {
 
     @Component({
       template: `
-        <ng-template #template>{{name}}</ng-template>
+        <ng-template #template>{{ name }}</ng-template>
         <triple [template]="template"></triple>
       `,
       standalone: false,
@@ -867,9 +867,7 @@ describe('change detection for transplanted views', () => {
   describe('when detached', () => {
     @Component({
       selector: 'on-push-component',
-      template: `
-          <ng-container #vc></ng-container>
-        `,
+      template: ` <ng-container #vc></ng-container> `,
       changeDetection: ChangeDetectionStrategy.OnPush,
       standalone: false,
     })
@@ -884,9 +882,7 @@ describe('change detection for transplanted views', () => {
 
     @Component({
       selector: 'check-always-component',
-      template: `
-          <ng-container #vc></ng-container>
-        `,
+      template: ` <ng-container #vc></ng-container> `,
       standalone: false,
     })
     class CheckAlwaysComponent {
@@ -904,10 +900,10 @@ describe('change detection for transplanted views', () => {
 
     @Component({
       template: `
-      <ng-template #transplantedTemplate>{{ incrementChecks() }}</ng-template>
-      <on-push-component [template]="transplantedTemplate"></on-push-component>
-      <check-always-component [template]="transplantedTemplate"></check-always-component>
-        `,
+        <ng-template #transplantedTemplate>{{ incrementChecks() }}</ng-template>
+        <on-push-component [template]="transplantedTemplate"></on-push-component>
+        <check-always-component [template]="transplantedTemplate"></check-always-component>
+      `,
       standalone: false,
     })
     class App {
@@ -986,7 +982,6 @@ describe('change detection for transplanted views', () => {
 
     it('does not cause error if running change detection on detached view', () => {
       @Component({
-        standalone: true,
         selector: 'insertion',
         template: `<ng-container #vc></ng-container>`,
       })
@@ -999,7 +994,6 @@ describe('change detection for transplanted views', () => {
       }
 
       @Component({
-        standalone: true,
         template: `
           <ng-template #transplantedTemplate></ng-template>
           <insertion [template]="transplantedTemplate"></insertion>
@@ -1017,7 +1011,6 @@ describe('change detection for transplanted views', () => {
 
     it('backwards reference still updated if detaching root during change detection', () => {
       @Component({
-        standalone: true,
         selector: 'insertion',
         template: `<ng-container #vc></ng-container>`,
         changeDetection: ChangeDetectionStrategy.OnPush,
@@ -1033,7 +1026,6 @@ describe('change detection for transplanted views', () => {
       @Component({
         template: '<ng-template #template>{{value}}</ng-template>',
         selector: 'declaration',
-        standalone: true,
       })
       class Declaration {
         @ViewChild('template', {static: true}) transplantedTemplate!: TemplateRef<{}>;
@@ -1041,11 +1033,10 @@ describe('change detection for transplanted views', () => {
       }
 
       @Component({
-        standalone: true,
         template: `
           <insertion [template]="declaration?.transplantedTemplate"></insertion>
           <declaration [value]="value"></declaration>
-          {{incrementChecks()}}
+          {{ incrementChecks() }}
         `,
         imports: [Insertion, Declaration],
       })
@@ -1079,7 +1070,6 @@ describe('change detection for transplanted views', () => {
     @Component({
       selector: 'insertion',
       imports: [NgTemplateOutlet],
-      standalone: true,
       template: ` <ng-container [ngTemplateOutlet]="template"> </ng-container>`,
     })
     class Insertion {
@@ -1089,8 +1079,7 @@ describe('change detection for transplanted views', () => {
 
     @Component({
       imports: [Insertion, AsyncPipe],
-      template: `<ng-template #myTmpl> {{newObservable() | async}} </ng-template>`,
-      standalone: true,
+      template: `<ng-template #myTmpl> {{ newObservable() | async }} </ng-template>`,
       selector: 'declaration',
     })
     class Declaration {
@@ -1100,7 +1089,6 @@ describe('change detection for transplanted views', () => {
       }
     }
     @Component({
-      standalone: true,
       imports: [Declaration, Insertion],
       template: '<insertion [template]="declaration.template"/><declaration #declaration/>',
     })
@@ -1131,13 +1119,12 @@ describe('change detection for transplanted views', () => {
   });
   it('does not cause infinite loops with exhaustive checkNoChanges', async () => {
     TestBed.configureTestingModule({
-      providers: [provideExperimentalCheckNoChangesForDebug({interval: 1})],
+      providers: [provideCheckNoChangesConfig({interval: 1, exhaustive: true})],
     });
     const errorSpy = spyOn(console, 'error').and.callFake((...v) => {
       fail('console errored with ' + v);
     });
     @Component({
-      standalone: true,
       selector: 'insertion',
       template: `<ng-container #vc></ng-container>`,
       changeDetection: ChangeDetectionStrategy.OnPush,
@@ -1151,11 +1138,10 @@ describe('change detection for transplanted views', () => {
     }
 
     @Component({
-      standalone: true,
       template: `
-          <ng-template #template>hello world</ng-template>
-          <insertion [template]="transplantedTemplate"></insertion>
-        `,
+        <ng-template #template>hello world</ng-template>
+        <insertion [template]="transplantedTemplate"></insertion>
+      `,
       imports: [Insertion],
     })
     class Root {

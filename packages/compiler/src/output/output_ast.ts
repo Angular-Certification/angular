@@ -124,6 +124,7 @@ export enum UnaryOperator {
 export enum BinaryOperator {
   Equals,
   NotEquals,
+  Assign,
   Identical,
   NotIdentical,
   Minus,
@@ -140,6 +141,18 @@ export enum BinaryOperator {
   Bigger,
   BiggerEquals,
   NullishCoalesce,
+  Exponentiation,
+  In,
+  InstanceOf,
+  AdditionAssignment,
+  SubtractionAssignment,
+  MultiplicationAssignment,
+  DivisionAssignment,
+  RemainderAssignment,
+  ExponentiationAssignment,
+  AndAssignment,
+  OrAssignment,
+  NullishCoalesceAssignment,
 }
 
 export function nullSafeIsEquivalent<T extends {isEquivalent(other: T): boolean}>(
@@ -261,22 +274,17 @@ export abstract class Expression {
   modulo(rhs: Expression, sourceSpan?: ParseSourceSpan | null): BinaryOperatorExpr {
     return new BinaryOperatorExpr(BinaryOperator.Modulo, this, rhs, null, sourceSpan);
   }
+  power(rhs: Expression, sourceSpan?: ParseSourceSpan | null): BinaryOperatorExpr {
+    return new BinaryOperatorExpr(BinaryOperator.Exponentiation, this, rhs, null, sourceSpan);
+  }
   and(rhs: Expression, sourceSpan?: ParseSourceSpan | null): BinaryOperatorExpr {
     return new BinaryOperatorExpr(BinaryOperator.And, this, rhs, null, sourceSpan);
   }
-  bitwiseOr(
-    rhs: Expression,
-    sourceSpan?: ParseSourceSpan | null,
-    parens: boolean = true,
-  ): BinaryOperatorExpr {
-    return new BinaryOperatorExpr(BinaryOperator.BitwiseOr, this, rhs, null, sourceSpan, parens);
+  bitwiseOr(rhs: Expression, sourceSpan?: ParseSourceSpan | null): BinaryOperatorExpr {
+    return new BinaryOperatorExpr(BinaryOperator.BitwiseOr, this, rhs, null, sourceSpan);
   }
-  bitwiseAnd(
-    rhs: Expression,
-    sourceSpan?: ParseSourceSpan | null,
-    parens: boolean = true,
-  ): BinaryOperatorExpr {
-    return new BinaryOperatorExpr(BinaryOperator.BitwiseAnd, this, rhs, null, sourceSpan, parens);
+  bitwiseAnd(rhs: Expression, sourceSpan?: ParseSourceSpan | null): BinaryOperatorExpr {
+    return new BinaryOperatorExpr(BinaryOperator.BitwiseAnd, this, rhs, null, sourceSpan);
   }
   or(rhs: Expression, sourceSpan?: ParseSourceSpan | null): BinaryOperatorExpr {
     return new BinaryOperatorExpr(BinaryOperator.Or, this, rhs, null, sourceSpan);
@@ -332,8 +340,8 @@ export class ReadVarExpr extends Expression {
     return new ReadVarExpr(this.name, this.type, this.sourceSpan);
   }
 
-  set(value: Expression): WriteVarExpr {
-    return new WriteVarExpr(this.name, value, null, this.sourceSpan);
+  set(value: Expression): BinaryOperatorExpr {
+    return new BinaryOperatorExpr(BinaryOperator.Assign, this, value, null, this.sourceSpan);
   }
 }
 
@@ -363,6 +371,32 @@ export class TypeofExpr extends Expression {
   }
 }
 
+export class VoidExpr extends Expression {
+  constructor(
+    public expr: Expression,
+    type?: Type | null,
+    sourceSpan?: ParseSourceSpan | null,
+  ) {
+    super(type, sourceSpan);
+  }
+
+  override visitExpression(visitor: ExpressionVisitor, context: any) {
+    return visitor.visitVoidExpr(this, context);
+  }
+
+  override isEquivalent(e: Expression): boolean {
+    return e instanceof VoidExpr && e.expr.isEquivalent(this.expr);
+  }
+
+  override isConstant(): boolean {
+    return this.expr.isConstant();
+  }
+
+  override clone(): VoidExpr {
+    return new VoidExpr(this.expr.clone());
+  }
+}
+
 export class WrappedNodeExpr<T> extends Expression {
   constructor(
     public node: T,
@@ -386,125 +420,6 @@ export class WrappedNodeExpr<T> extends Expression {
 
   override clone(): WrappedNodeExpr<T> {
     return new WrappedNodeExpr(this.node, this.type, this.sourceSpan);
-  }
-}
-
-export class WriteVarExpr extends Expression {
-  public value: Expression;
-  constructor(
-    public name: string,
-    value: Expression,
-    type?: Type | null,
-    sourceSpan?: ParseSourceSpan | null,
-  ) {
-    super(type || value.type, sourceSpan);
-    this.value = value;
-  }
-
-  override isEquivalent(e: Expression): boolean {
-    return e instanceof WriteVarExpr && this.name === e.name && this.value.isEquivalent(e.value);
-  }
-
-  override isConstant() {
-    return false;
-  }
-
-  override visitExpression(visitor: ExpressionVisitor, context: any): any {
-    return visitor.visitWriteVarExpr(this, context);
-  }
-
-  override clone(): WriteVarExpr {
-    return new WriteVarExpr(this.name, this.value.clone(), this.type, this.sourceSpan);
-  }
-
-  toDeclStmt(type?: Type | null, modifiers?: StmtModifier): DeclareVarStmt {
-    return new DeclareVarStmt(this.name, this.value, type, modifiers, this.sourceSpan);
-  }
-
-  toConstDecl(): DeclareVarStmt {
-    return this.toDeclStmt(INFERRED_TYPE, StmtModifier.Final);
-  }
-}
-
-export class WriteKeyExpr extends Expression {
-  public value: Expression;
-  constructor(
-    public receiver: Expression,
-    public index: Expression,
-    value: Expression,
-    type?: Type | null,
-    sourceSpan?: ParseSourceSpan | null,
-  ) {
-    super(type || value.type, sourceSpan);
-    this.value = value;
-  }
-
-  override isEquivalent(e: Expression): boolean {
-    return (
-      e instanceof WriteKeyExpr &&
-      this.receiver.isEquivalent(e.receiver) &&
-      this.index.isEquivalent(e.index) &&
-      this.value.isEquivalent(e.value)
-    );
-  }
-
-  override isConstant() {
-    return false;
-  }
-
-  override visitExpression(visitor: ExpressionVisitor, context: any): any {
-    return visitor.visitWriteKeyExpr(this, context);
-  }
-
-  override clone(): WriteKeyExpr {
-    return new WriteKeyExpr(
-      this.receiver.clone(),
-      this.index.clone(),
-      this.value.clone(),
-      this.type,
-      this.sourceSpan,
-    );
-  }
-}
-
-export class WritePropExpr extends Expression {
-  public value: Expression;
-  constructor(
-    public receiver: Expression,
-    public name: string,
-    value: Expression,
-    type?: Type | null,
-    sourceSpan?: ParseSourceSpan | null,
-  ) {
-    super(type || value.type, sourceSpan);
-    this.value = value;
-  }
-
-  override isEquivalent(e: Expression): boolean {
-    return (
-      e instanceof WritePropExpr &&
-      this.receiver.isEquivalent(e.receiver) &&
-      this.name === e.name &&
-      this.value.isEquivalent(e.value)
-    );
-  }
-
-  override isConstant() {
-    return false;
-  }
-
-  override visitExpression(visitor: ExpressionVisitor, context: any): any {
-    return visitor.visitWritePropExpr(this, context);
-  }
-
-  override clone(): WritePropExpr {
-    return new WritePropExpr(
-      this.receiver.clone(),
-      this.name,
-      this.value.clone(),
-      this.type,
-      this.sourceSpan,
-    );
   }
 }
 
@@ -552,10 +467,10 @@ export class InvokeFunctionExpr extends Expression {
   }
 }
 
-export class TaggedTemplateExpr extends Expression {
+export class TaggedTemplateLiteralExpr extends Expression {
   constructor(
     public tag: Expression,
-    public template: TemplateLiteral,
+    public template: TemplateLiteralExpr,
     type?: Type | null,
     sourceSpan?: ParseSourceSpan | null,
   ) {
@@ -564,14 +479,9 @@ export class TaggedTemplateExpr extends Expression {
 
   override isEquivalent(e: Expression): boolean {
     return (
-      e instanceof TaggedTemplateExpr &&
+      e instanceof TaggedTemplateLiteralExpr &&
       this.tag.isEquivalent(e.tag) &&
-      areAllEquivalentPredicate(
-        this.template.elements,
-        e.template.elements,
-        (a, b) => a.text === b.text,
-      ) &&
-      areAllEquivalent(this.template.expressions, e.template.expressions)
+      this.template.isEquivalent(e.template)
     );
   }
 
@@ -580,11 +490,11 @@ export class TaggedTemplateExpr extends Expression {
   }
 
   override visitExpression(visitor: ExpressionVisitor, context: any): any {
-    return visitor.visitTaggedTemplateExpr(this, context);
+    return visitor.visitTaggedTemplateLiteralExpr(this, context);
   }
 
-  override clone(): TaggedTemplateExpr {
-    return new TaggedTemplateExpr(
+  override clone(): TaggedTemplateLiteralExpr {
+    return new TaggedTemplateLiteralExpr(
       this.tag.clone(),
       this.template.clone(),
       this.type,
@@ -629,6 +539,34 @@ export class InstantiateExpr extends Expression {
   }
 }
 
+export class RegularExpressionLiteralExpr extends Expression {
+  constructor(
+    public body: string,
+    public flags: string | null,
+    sourceSpan?: ParseSourceSpan | null,
+  ) {
+    super(null, sourceSpan);
+  }
+
+  override isEquivalent(e: Expression): boolean {
+    return (
+      e instanceof RegularExpressionLiteralExpr && this.body === e.body && this.flags === e.flags
+    );
+  }
+
+  override isConstant() {
+    return true;
+  }
+
+  override visitExpression(visitor: ExpressionVisitor, context: any): any {
+    return visitor.visitRegularExpressionLiteral(this, context);
+  }
+
+  override clone(): RegularExpressionLiteralExpr {
+    return new RegularExpressionLiteralExpr(this.body, this.flags, this.sourceSpan);
+  }
+}
+
 export class LiteralExpr extends Expression {
   constructor(
     public value: number | string | boolean | null | undefined,
@@ -655,38 +593,73 @@ export class LiteralExpr extends Expression {
   }
 }
 
-export class TemplateLiteral {
+export class TemplateLiteralExpr extends Expression {
   constructor(
-    public elements: TemplateLiteralElement[],
+    public elements: TemplateLiteralElementExpr[],
     public expressions: Expression[],
-  ) {}
+    sourceSpan?: ParseSourceSpan | null,
+  ) {
+    super(null, sourceSpan);
+  }
 
-  clone(): TemplateLiteral {
-    return new TemplateLiteral(
+  override isEquivalent(e: Expression): boolean {
+    return (
+      e instanceof TemplateLiteralExpr &&
+      areAllEquivalentPredicate(this.elements, e.elements, (a, b) => a.text === b.text) &&
+      areAllEquivalent(this.expressions, e.expressions)
+    );
+  }
+
+  override isConstant() {
+    return false;
+  }
+
+  override visitExpression(visitor: ExpressionVisitor, context: any): any {
+    return visitor.visitTemplateLiteralExpr(this, context);
+  }
+
+  override clone(): TemplateLiteralExpr {
+    return new TemplateLiteralExpr(
       this.elements.map((el) => el.clone()),
       this.expressions.map((expr) => expr.clone()),
     );
   }
 }
-export class TemplateLiteralElement {
-  rawText: string;
+export class TemplateLiteralElementExpr extends Expression {
+  readonly rawText: string;
+
   constructor(
-    public text: string,
-    public sourceSpan?: ParseSourceSpan,
+    readonly text: string,
+    sourceSpan?: ParseSourceSpan | null,
     rawText?: string,
   ) {
-    // If `rawText` is not provided, try to extract the raw string from its
-    // associated `sourceSpan`. If that is also not available, "fake" the raw
-    // string instead by escaping the following control sequences:
+    super(STRING_TYPE, sourceSpan);
+
+    // If `rawText` is not provided, "fake" the raw string by escaping the following sequences:
     // - "\" would otherwise indicate that the next character is a control character.
     // - "`" and "${" are template string control sequences that would otherwise prematurely
     // indicate the end of the template literal element.
-    this.rawText =
-      rawText ?? sourceSpan?.toString() ?? escapeForTemplateLiteral(escapeSlashes(text));
+    // Note that we can't rely on the `sourceSpan` here, because it may be incorrect (see
+    // https://github.com/angular/angular/pull/60267#discussion_r1986402524).
+    this.rawText = rawText ?? escapeForTemplateLiteral(escapeSlashes(text));
   }
 
-  clone(): TemplateLiteralElement {
-    return new TemplateLiteralElement(this.text, this.sourceSpan, this.rawText);
+  override visitExpression(visitor: ExpressionVisitor, context: any) {
+    return visitor.visitTemplateLiteralElementExpr(this, context);
+  }
+
+  override isEquivalent(e: Expression): boolean {
+    return (
+      e instanceof TemplateLiteralElementExpr && e.text === this.text && e.rawText === this.rawText
+    );
+  }
+
+  override isConstant(): boolean {
+    return true;
+  }
+
+  override clone(): TemplateLiteralElementExpr {
+    return new TemplateLiteralElementExpr(this.text, this.sourceSpan, this.rawText);
   }
 }
 
@@ -1163,6 +1136,33 @@ export class UnaryOperatorExpr extends Expression {
   }
 }
 
+export class ParenthesizedExpr extends Expression {
+  constructor(
+    public expr: Expression,
+    type?: Type | null,
+    sourceSpan?: ParseSourceSpan | null,
+  ) {
+    super(type, sourceSpan);
+  }
+
+  override visitExpression(visitor: ExpressionVisitor, context: any) {
+    return visitor.visitParenthesizedExpr(this, context);
+  }
+
+  override isEquivalent(e: Expression): boolean {
+    // TODO: should this ignore paren depth? i.e. is `(1)` equivalent to `1`?
+    return e instanceof ParenthesizedExpr && e.expr.isEquivalent(this.expr);
+  }
+
+  override isConstant(): boolean {
+    return this.expr.isConstant();
+  }
+
+  override clone(): ParenthesizedExpr {
+    return new ParenthesizedExpr(this.expr.clone());
+  }
+}
+
 export class BinaryOperatorExpr extends Expression {
   public lhs: Expression;
   constructor(
@@ -1171,7 +1171,6 @@ export class BinaryOperatorExpr extends Expression {
     public rhs: Expression,
     type?: Type | null,
     sourceSpan?: ParseSourceSpan | null,
-    public parens: boolean = true,
   ) {
     super(type || lhs.type, sourceSpan);
     this.lhs = lhs;
@@ -1201,7 +1200,22 @@ export class BinaryOperatorExpr extends Expression {
       this.rhs.clone(),
       this.type,
       this.sourceSpan,
-      this.parens,
+    );
+  }
+
+  isAssignment(): boolean {
+    const op = this.operator;
+    return (
+      op === BinaryOperator.Assign ||
+      op === BinaryOperator.AdditionAssignment ||
+      op === BinaryOperator.SubtractionAssignment ||
+      op === BinaryOperator.MultiplicationAssignment ||
+      op === BinaryOperator.DivisionAssignment ||
+      op === BinaryOperator.RemainderAssignment ||
+      op === BinaryOperator.ExponentiationAssignment ||
+      op === BinaryOperator.AndAssignment ||
+      op === BinaryOperator.OrAssignment ||
+      op === BinaryOperator.NullishCoalesceAssignment
     );
   }
 }
@@ -1235,8 +1249,14 @@ export class ReadPropExpr extends Expression {
     return visitor.visitReadPropExpr(this, context);
   }
 
-  set(value: Expression): WritePropExpr {
-    return new WritePropExpr(this.receiver, this.name, value, null, this.sourceSpan);
+  set(value: Expression): BinaryOperatorExpr {
+    return new BinaryOperatorExpr(
+      BinaryOperator.Assign,
+      this.receiver.prop(this.name),
+      value,
+      null,
+      this.sourceSpan,
+    );
   }
 
   override clone(): ReadPropExpr {
@@ -1270,8 +1290,14 @@ export class ReadKeyExpr extends Expression {
     return visitor.visitReadKeyExpr(this, context);
   }
 
-  set(value: Expression): WriteKeyExpr {
-    return new WriteKeyExpr(this.receiver, this.index, value, null, this.sourceSpan);
+  set(value: Expression): BinaryOperatorExpr {
+    return new BinaryOperatorExpr(
+      BinaryOperator.Assign,
+      this.receiver.key(this.index),
+      value,
+      null,
+      this.sourceSpan,
+    );
   }
 
   override clone(): ReadKeyExpr {
@@ -1306,20 +1332,43 @@ export class LiteralArrayExpr extends Expression {
   }
 }
 
-export class LiteralMapEntry {
+export class LiteralMapPropertyAssignment {
   constructor(
     public key: string,
     public value: Expression,
     public quoted: boolean,
   ) {}
-  isEquivalent(e: LiteralMapEntry): boolean {
+
+  isEquivalent(e: LiteralMapPropertyAssignment): boolean {
     return this.key === e.key && this.value.isEquivalent(e.value);
   }
 
-  clone(): LiteralMapEntry {
-    return new LiteralMapEntry(this.key, this.value.clone(), this.quoted);
+  clone(): LiteralMapPropertyAssignment {
+    return new LiteralMapPropertyAssignment(this.key, this.value.clone(), this.quoted);
+  }
+
+  isConstant() {
+    return this.value.isConstant();
   }
 }
+
+export class LiteralMapSpreadAssignment {
+  constructor(public expression: Expression) {}
+
+  isEquivalent(e: LiteralMapSpreadAssignment): boolean {
+    return e instanceof LiteralMapSpreadAssignment && this.expression.isEquivalent(e.expression);
+  }
+
+  clone(): LiteralMapSpreadAssignment {
+    return new LiteralMapSpreadAssignment(this.expression.clone());
+  }
+
+  isConstant() {
+    return this.expression.isConstant();
+  }
+}
+
+export type LiteralMapEntry = LiteralMapPropertyAssignment | LiteralMapSpreadAssignment;
 
 export class LiteralMapExpr extends Expression {
   public valueType: Type | null = null;
@@ -1339,7 +1388,7 @@ export class LiteralMapExpr extends Expression {
   }
 
   override isConstant() {
-    return this.entries.every((e) => e.value.isConstant());
+    return this.entries.every((e) => e.isConstant());
   }
 
   override visitExpression(visitor: ExpressionVisitor, context: any): any {
@@ -1377,13 +1426,37 @@ export class CommaExpr extends Expression {
   }
 }
 
+export class SpreadElementExpr extends Expression {
+  constructor(
+    public expression: Expression,
+    sourceSpan?: ParseSourceSpan | null,
+  ) {
+    super(null, sourceSpan);
+  }
+
+  override isEquivalent(e: Expression): boolean {
+    return e instanceof SpreadElementExpr && this.expression.isEquivalent(e.expression);
+  }
+
+  override isConstant() {
+    return this.expression.isConstant();
+  }
+
+  override visitExpression(visitor: ExpressionVisitor, context: any): any {
+    return visitor.visitSpreadElementExpr(this, context);
+  }
+
+  override clone(): SpreadElementExpr {
+    return new SpreadElementExpr(this.expression.clone(), this.sourceSpan);
+  }
+}
+
 export interface ExpressionVisitor {
   visitReadVarExpr(ast: ReadVarExpr, context: any): any;
-  visitWriteVarExpr(expr: WriteVarExpr, context: any): any;
-  visitWriteKeyExpr(expr: WriteKeyExpr, context: any): any;
-  visitWritePropExpr(expr: WritePropExpr, context: any): any;
   visitInvokeFunctionExpr(ast: InvokeFunctionExpr, context: any): any;
-  visitTaggedTemplateExpr(ast: TaggedTemplateExpr, context: any): any;
+  visitTaggedTemplateLiteralExpr(ast: TaggedTemplateLiteralExpr, context: any): any;
+  visitTemplateLiteralExpr(ast: TemplateLiteralExpr, context: any): any;
+  visitTemplateLiteralElementExpr(ast: TemplateLiteralElementExpr, context: any): any;
   visitInstantiateExpr(ast: InstantiateExpr, context: any): any;
   visitLiteralExpr(ast: LiteralExpr, context: any): any;
   visitLocalizedString(ast: LocalizedString, context: any): any;
@@ -1401,7 +1474,11 @@ export interface ExpressionVisitor {
   visitCommaExpr(ast: CommaExpr, context: any): any;
   visitWrappedNodeExpr(ast: WrappedNodeExpr<any>, context: any): any;
   visitTypeofExpr(ast: TypeofExpr, context: any): any;
+  visitVoidExpr(ast: VoidExpr, context: any): any;
   visitArrowFunctionExpr(ast: ArrowFunctionExpr, context: any): any;
+  visitParenthesizedExpr(ast: ParenthesizedExpr, context: any): any;
+  visitRegularExpressionLiteral(ast: RegularExpressionLiteralExpr, context: any): any;
+  visitSpreadElementExpr(ast: SpreadElementExpr, context: any): any;
 }
 
 export const NULL_EXPR = new LiteralExpr(null, null, null);
@@ -1605,25 +1682,7 @@ export class RecursiveAstVisitor implements StatementVisitor, ExpressionVisitor 
   visitWrappedNodeExpr(ast: WrappedNodeExpr<any>, context: any): any {
     return ast;
   }
-  visitTypeofExpr(ast: TypeofExpr, context: any): any {
-    return this.visitExpression(ast, context);
-  }
   visitReadVarExpr(ast: ReadVarExpr, context: any): any {
-    return this.visitExpression(ast, context);
-  }
-  visitWriteVarExpr(ast: WriteVarExpr, context: any): any {
-    ast.value.visitExpression(this, context);
-    return this.visitExpression(ast, context);
-  }
-  visitWriteKeyExpr(ast: WriteKeyExpr, context: any): any {
-    ast.receiver.visitExpression(this, context);
-    ast.index.visitExpression(this, context);
-    ast.value.visitExpression(this, context);
-    return this.visitExpression(ast, context);
-  }
-  visitWritePropExpr(ast: WritePropExpr, context: any): any {
-    ast.receiver.visitExpression(this, context);
-    ast.value.visitExpression(this, context);
     return this.visitExpression(ast, context);
   }
   visitDynamicImportExpr(ast: DynamicImportExpr, context: any) {
@@ -1634,9 +1693,9 @@ export class RecursiveAstVisitor implements StatementVisitor, ExpressionVisitor 
     this.visitAllExpressions(ast.args, context);
     return this.visitExpression(ast, context);
   }
-  visitTaggedTemplateExpr(ast: TaggedTemplateExpr, context: any): any {
+  visitTaggedTemplateLiteralExpr(ast: TaggedTemplateLiteralExpr, context: any): any {
     ast.tag.visitExpression(this, context);
-    this.visitAllExpressions(ast.template.expressions, context);
+    ast.template.visitExpression(this, context);
     return this.visitExpression(ast, context);
   }
   visitInstantiateExpr(ast: InstantiateExpr, context: any): any {
@@ -1645,6 +1704,9 @@ export class RecursiveAstVisitor implements StatementVisitor, ExpressionVisitor 
     return this.visitExpression(ast, context);
   }
   visitLiteralExpr(ast: LiteralExpr, context: any): any {
+    return this.visitExpression(ast, context);
+  }
+  visitRegularExpressionLiteral(ast: RegularExpressionLiteralExpr, context: any): any {
     return this.visitExpression(ast, context);
   }
   visitLocalizedString(ast: LocalizedString, context: any): any {
@@ -1685,6 +1747,14 @@ export class RecursiveAstVisitor implements StatementVisitor, ExpressionVisitor 
     ast.expr.visitExpression(this, context);
     return this.visitExpression(ast, context);
   }
+  visitTypeofExpr(ast: TypeofExpr, context: any): any {
+    ast.expr.visitExpression(this, context);
+    return this.visitExpression(ast, context);
+  }
+  visitVoidExpr(ast: VoidExpr, context: any) {
+    ast.expr.visitExpression(this, context);
+    return this.visitExpression(ast, context);
+  }
   visitBinaryOperatorExpr(ast: BinaryOperatorExpr, context: any): any {
     ast.lhs.visitExpression(this, context);
     ast.rhs.visitExpression(this, context);
@@ -1704,11 +1774,33 @@ export class RecursiveAstVisitor implements StatementVisitor, ExpressionVisitor 
     return this.visitExpression(ast, context);
   }
   visitLiteralMapExpr(ast: LiteralMapExpr, context: any): any {
-    ast.entries.forEach((entry) => entry.value.visitExpression(this, context));
+    ast.entries.forEach((entry) => {
+      if (entry instanceof LiteralMapSpreadAssignment) {
+        entry.expression.visitExpression(this, context);
+      } else {
+        entry.value.visitExpression(this, context);
+      }
+    });
     return this.visitExpression(ast, context);
   }
   visitCommaExpr(ast: CommaExpr, context: any): any {
     this.visitAllExpressions(ast.parts, context);
+    return this.visitExpression(ast, context);
+  }
+  visitTemplateLiteralExpr(ast: TemplateLiteralExpr, context: any) {
+    this.visitAllExpressions(ast.elements, context);
+    this.visitAllExpressions(ast.expressions, context);
+    return this.visitExpression(ast, context);
+  }
+  visitTemplateLiteralElementExpr(ast: TemplateLiteralElementExpr, context: any) {
+    return this.visitExpression(ast, context);
+  }
+  visitParenthesizedExpr(ast: ParenthesizedExpr, context: any) {
+    ast.expr.visitExpression(this, context);
+    return this.visitExpression(ast, context);
+  }
+  visitSpreadElementExpr(ast: SpreadElementExpr, context: any): any {
+    ast.expression.visitExpression(this, context);
     return this.visitExpression(ast, context);
   }
   visitAllExpressions(exprs: Expression[], context: any): void {
@@ -1815,7 +1907,7 @@ export function literalMap(
   type: MapType | null = null,
 ): LiteralMapExpr {
   return new LiteralMapExpr(
-    values.map((e) => new LiteralMapEntry(e.key, e.value, e.quoted)),
+    values.map((e) => new LiteralMapPropertyAssignment(e.key, e.value, e.quoted)),
     type,
     null,
   );
@@ -1865,11 +1957,11 @@ export function ifStmt(
 
 export function taggedTemplate(
   tag: Expression,
-  template: TemplateLiteral,
+  template: TemplateLiteralExpr,
   type?: Type | null,
   sourceSpan?: ParseSourceSpan | null,
-): TaggedTemplateExpr {
-  return new TaggedTemplateExpr(tag, template, type, sourceSpan);
+): TaggedTemplateLiteralExpr {
+  return new TaggedTemplateLiteralExpr(tag, template, type, sourceSpan);
 }
 
 export function literal(

@@ -6,10 +6,10 @@
  * found in the LICENSE file at https://angular.dev/license
  */
 
-import {initMockFileSystem} from '@angular/compiler-cli/src/ngtsc/file_system/testing';
+import {absoluteFrom} from '@angular/compiler-cli';
+import {initMockFileSystem} from '@angular/compiler-cli/private/testing';
 import {runTsurgeMigration} from '../../utils/tsurge/testing';
 import {diffText} from '../../utils/tsurge/testing/diff';
-import {absoluteFrom} from '@angular/compiler-cli';
 import {OutputMigration} from './output-migration';
 
 describe('outputs', () => {
@@ -30,6 +30,28 @@ describe('outputs', () => {
         await verifyDeclaration({
           before: '@Output() readonly someChange = new EventEmitter<string | number>();',
           after: 'readonly someChange = output<string | number>();',
+        });
+      });
+
+      it('should keep type without initializer', async () => {
+        await verifyDeclaration({
+          before: '@Output() eventMovement: EventEmitter<IResponse> = new EventEmitter();',
+          after: 'readonly eventMovement = output<IResponse>();',
+        });
+      });
+
+      it('should keep type with initializer', async () => {
+        await verifyDeclaration({
+          before: '@Output() eventMovement: EventEmitter = new EventEmitter<IResponse>();',
+          after: 'readonly eventMovement = output<IResponse>();',
+        });
+      });
+
+      it('should keep type without initializer and with alias', async () => {
+        await verifyDeclaration({
+          before:
+            "@Output('customEvent') eventMovement: EventEmitter<IResponse> = new EventEmitter();",
+          after: "readonly eventMovement = output<IResponse>({ alias: 'customEvent' });",
         });
       });
 
@@ -142,6 +164,65 @@ describe('outputs', () => {
               export class TestDir {
                 /* Whenever there is change,emits an event. */
                 readonly someChange = output();
+              }
+            `,
+        });
+      });
+
+      it('should not insert a TODO comment for emit function with no type', async () => {
+        await verify({
+          before: `
+              import {Directive, Output, EventEmitter} from '@angular/core';
+
+              @Directive()
+              export class TestDir {
+                @Output() someChange = new EventEmitter();
+
+                someMethod(): void {
+                  this.someChange.emit();
+                }
+              }
+            `,
+          after: `
+              import {Directive, output} from '@angular/core';
+
+              @Directive()
+              export class TestDir {
+                readonly someChange = output();
+
+                someMethod(): void {
+                  this.someChange.emit();
+                }
+              }
+            `,
+        });
+      });
+
+      it('should insert a TODO comment for emit function with type', async () => {
+        await verify({
+          before: `
+              import {Directive, Output, EventEmitter} from '@angular/core';
+
+              @Directive()
+              export class TestDir {
+                @Output() someChange = new EventEmitter<string>();
+
+                someMethod(): void {
+                  this.someChange.emit();
+                }
+              }
+            `,
+          after: `
+              import {Directive, output} from '@angular/core';
+
+              @Directive()
+              export class TestDir {
+                readonly someChange = output<string>();
+
+                someMethod(): void {
+                  // TODO: The 'emit' function requires a mandatory string argument
+                  this.someChange.emit();
+                }
               }
             `,
         });
@@ -597,9 +678,9 @@ describe('outputs', () => {
       ]);
 
       const stats = await runResults.getStatistics();
-      expect(stats.counters['detectedOutputs']).toBe(4);
-      expect(stats.counters['problematicOutputs']).toBe(2);
-      expect(stats.counters['successRate']).toBe(0.5);
+      expect(stats['detectedOutputs']).toBe(4);
+      expect(stats['problematicOutputs']).toBe(2);
+      expect(stats['successRate']).toBe(0.5);
     });
 
     it('should capture migration statistics without problematic usages', async () => {
@@ -615,9 +696,9 @@ describe('outputs', () => {
       ]);
 
       const stats = await runResults.getStatistics();
-      expect(stats.counters['detectedOutputs']).toBe(2);
-      expect(stats.counters['problematicOutputs']).toBe(0);
-      expect(stats.counters['successRate']).toBe(1);
+      expect(stats['detectedOutputs']).toBe(2);
+      expect(stats['problematicOutputs']).toBe(0);
+      expect(stats['successRate']).toBe(1);
     });
   });
 

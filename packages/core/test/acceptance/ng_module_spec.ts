@@ -25,11 +25,10 @@ import {
   ɵɵdefineNgModule as defineNgModule,
   ɵɵelement as element,
   ɵɵproperty as property,
-} from '@angular/core';
-import {KNOWN_CONTROL_FLOW_DIRECTIVES} from '@angular/core/src/render3/instructions/element_validation';
-import {TestBed} from '@angular/core/testing';
-import {BrowserModule} from '@angular/platform-browser';
-import {platformBrowserDynamic} from '@angular/platform-browser-dynamic';
+} from '../../src/core';
+import {KNOWN_CONTROL_FLOW_DIRECTIVES} from '../../src/render3/instructions/element_validation';
+import {TestBed} from '../../testing';
+import {BrowserModule, platformBrowser} from '@angular/platform-browser';
 import {withBody} from '@angular/private/testing';
 
 describe('NgModule', () => {
@@ -98,7 +97,6 @@ describe('NgModule', () => {
     it('should throw when a standalone component is added to NgModule declarations', () => {
       @Component({
         selector: 'my-comp',
-        standalone: true,
         template: '',
       })
       class MyComp {}
@@ -120,7 +118,6 @@ describe('NgModule', () => {
     it('should throw when a standalone directive is added to NgModule declarations', () => {
       @Directive({
         selector: '[my-dir]',
-        standalone: true,
       })
       class MyDir {}
 
@@ -148,7 +145,6 @@ describe('NgModule', () => {
     it('should throw when a standalone pipe is added to NgModule declarations', () => {
       @Pipe({
         name: 'my-pipe',
-        standalone: true,
       })
       class MyPipe {}
 
@@ -177,7 +173,6 @@ describe('NgModule', () => {
       @Component({
         selector: 'my-comp',
         template: '',
-        standalone: true,
       })
       class MyComp {}
 
@@ -214,7 +209,7 @@ describe('NgModule', () => {
           bootstrap: [App],
         })
         class AppModule {}
-        const ngModuleRef = await platformBrowserDynamic().bootstrapModule(AppModule);
+        const ngModuleRef = await platformBrowser().bootstrapModule(AppModule);
 
         const button = document.body.querySelector('button')!;
         expect(button.textContent).toEqual('button content');
@@ -443,7 +438,6 @@ describe('NgModule', () => {
     it('should log an error about unknown element for a standalone component without CUSTOM_ELEMENTS_SCHEMA', () => {
       @Component({
         template: `<custom-el></custom-el>`,
-        standalone: true,
       })
       class MyComp {}
 
@@ -457,7 +451,6 @@ describe('NgModule', () => {
     it('should not log an error about unknown element for a standalone component with CUSTOM_ELEMENTS_SCHEMA', () => {
       @Component({
         template: `<custom-el></custom-el>`,
-        standalone: true,
         schemas: [CUSTOM_ELEMENTS_SCHEMA],
       })
       class MyComp {}
@@ -657,7 +650,6 @@ describe('NgModule', () => {
           `is used in a template, but not imported in a standalone component`,
         () => {
           @Component({
-            standalone: true,
             template: `<div *${directive}="expr"></div>`,
           })
           class App {

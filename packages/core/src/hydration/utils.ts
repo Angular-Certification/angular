@@ -13,8 +13,8 @@ import {LContainer} from '../render3/interfaces/container';
 import {getDocument} from '../render3/interfaces/document';
 import {RElement, RNode} from '../render3/interfaces/renderer_dom';
 import {isRootView} from '../render3/interfaces/type_checks';
-import {HEADER_OFFSET, LView, TVIEW, TViewType} from '../render3/interfaces/view';
-import {makeStateKey, TransferState} from '../transfer_state';
+import {HEADER_OFFSET, HYDRATION, LView, TVIEW, TViewType} from '../render3/interfaces/view';
+import {makeStateKey, StateKey, TransferState} from '../transfer_state';
 import {assertDefined, assertEqual} from '../util/assert';
 import type {HydrationContext} from './annotate';
 
@@ -34,11 +34,14 @@ import {
   SerializedView,
 } from './interfaces';
 import {IS_INCREMENTAL_HYDRATION_ENABLED, JSACTION_BLOCK_ELEMENT_MAP} from './tokens';
-import {RuntimeError, RuntimeErrorCode} from '../errors';
+import {formatRuntimeError, RuntimeError, RuntimeErrorCode} from '../errors';
 import {DeferBlockTrigger, HydrateTriggerDetails} from '../defer/interfaces';
-import {hoverEventNames, interactionEventNames} from '../defer/dom_triggers';
+import {hoverEventNames, interactionEventNames} from '../../primitives/defer/src/triggers';
 import {DEHYDRATED_BLOCK_REGISTRY} from '../defer/registry';
 import {sharedMapFunction} from '../event_delegation_utils';
+import {isDetachedByI18n} from '../i18n/utils';
+import {isInSkipHydrationBlock} from '../render3/state';
+import {TNode} from '../render3/interfaces/node';
 
 /**
  * The name of the key used in the TransferState collection,
@@ -49,7 +52,8 @@ const TRANSFER_STATE_TOKEN_ID = '__nghData__';
 /**
  * Lookup key used to reference DOM hydration data (ngh) in `TransferState`.
  */
-export const NGH_DATA_KEY = makeStateKey<Array<SerializedView>>(TRANSFER_STATE_TOKEN_ID);
+export const NGH_DATA_KEY: StateKey<SerializedView[]> =
+  makeStateKey<Array<SerializedView>>(TRANSFER_STATE_TOKEN_ID);
 
 /**
  * The name of the key used in the TransferState collection,
@@ -60,9 +64,16 @@ export const TRANSFER_STATE_DEFER_BLOCKS_INFO = '__nghDeferData__';
 /**
  * Lookup key used to retrieve defer block datain `TransferState`.
  */
-export const NGH_DEFER_BLOCKS_KEY = makeStateKey<{[key: string]: SerializedDeferBlock}>(
-  TRANSFER_STATE_DEFER_BLOCKS_INFO,
-);
+export const NGH_DEFER_BLOCKS_KEY: StateKey<{[key: string]: SerializedDeferBlock}> = makeStateKey<{
+  [key: string]: SerializedDeferBlock;
+}>(TRANSFER_STATE_DEFER_BLOCKS_INFO);
+
+/**
+ * Checks whether a given key is used by the framework for transferring hydration data.
+ */
+export function isInternalHydrationTransferStateKey(key: string): boolean {
+  return key === TRANSFER_STATE_TOKEN_ID || key === TRANSFER_STATE_DEFER_BLOCKS_INFO;
+}
 
 /**
  * The name of the attribute that would be added to host component
@@ -301,7 +312,7 @@ const HYDRATION_INFO_KEY = '__ngDebugHydrationInfo__';
 
 export type HydratedNode = {
   [HYDRATION_INFO_KEY]?: HydrationInfo;
-};
+} & Element;
 
 function patchHydrationInfo(node: RNode, info: HydrationInfo) {
   (node as HydratedNode)[HYDRATION_INFO_KEY] = info;
@@ -400,15 +411,23 @@ export function isIncrementalHydrationEnabled(injector: Injector): boolean {
   });
 }
 
+let incrementalHydrationEnabledWarned = false;
+export function resetIncrementalHydrationEnabledWarnedForTests() {
+  incrementalHydrationEnabledWarned = false;
+}
+
 /** Throws an error if the incremental hydration is not enabled */
-export function assertIncrementalHydrationIsConfigured(injector: Injector) {
-  if (!isIncrementalHydrationEnabled(injector)) {
-    throw new RuntimeError(
-      RuntimeErrorCode.MISCONFIGURED_INCREMENTAL_HYDRATION,
-      'Angular has detected that some `@defer` blocks use `hydrate` triggers, ' +
-        'but incremental hydration was not enabled. Please ensure that the `withIncrementalHydration()` ' +
-        'call is added as an argument for the `provideClientHydration()` function call ' +
-        'in your application config.',
+export function warnIncrementalHydrationNotConfigured(): void {
+  if (!incrementalHydrationEnabledWarned) {
+    incrementalHydrationEnabledWarned = true;
+    console.warn(
+      formatRuntimeError(
+        RuntimeErrorCode.MISCONFIGURED_INCREMENTAL_HYDRATION,
+        'Angular has detected that some `@defer` blocks use `hydrate` triggers, ' +
+          'but incremental hydration was not enabled. Please ensure that the `withIncrementalHydration()` ' +
+          'call is added as an argument for the `provideClientHydration()` function call ' +
+          'in your application config.',
+      ),
     );
   }
 }
@@ -496,6 +515,22 @@ export function isDisconnectedNode(hydrationInfo: DehydratedView, index: number)
 }
 
 /**
+ * Checks whether a node can be hydrated.
+ * @param lView View in which the node instance is placed.
+ * @param tNode Node to be checked.
+ */
+export function canHydrateNode(lView: LView, tNode: TNode): boolean {
+  const hydrationInfo = lView[HYDRATION];
+
+  return (
+    hydrationInfo !== null &&
+    !isInSkipHydrationBlock() &&
+    !isDetachedByI18n(tNode) &&
+    !isDisconnectedNode(hydrationInfo, tNode.index - HEADER_OFFSET)
+  );
+}
+
+/**
  * Helper function to prepare text nodes for serialization by ensuring
  * that seperate logical text blocks in the DOM remain separate after
  * serialization.
@@ -571,7 +606,7 @@ export function getParentBlockHydrationQueue(
   const deferBlockParents = transferState.get(NGH_DEFER_BLOCKS_KEY, {});
 
   let isTopMostDeferBlock = false;
-  let currentBlockId: string | null = deferBlockId;
+  let currentBlockId: string | undefined = deferBlockId;
   let parentBlockPromise: Promise<void> | null = null;
   const hydrationQueue: string[] = [];
 
@@ -586,7 +621,6 @@ export function getParentBlockHydrationQueue(
     isTopMostDeferBlock = dehydratedBlockRegistry.has(currentBlockId);
     const hydratingParentBlock = dehydratedBlockRegistry.hydrating.get(currentBlockId);
     if (parentBlockPromise === null && hydratingParentBlock != null) {
-      // TODO: add an ngDevMode asset that `hydratingParentBlock.promise` exists and is of type Promise.
       parentBlockPromise = hydratingParentBlock.promise;
       break;
     }
@@ -599,12 +633,10 @@ export function getParentBlockHydrationQueue(
 function gatherDeferBlocksByJSActionAttribute(doc: Document): Set<HTMLElement> {
   const jsactionNodes = doc.body.querySelectorAll('[jsaction]');
   const blockMap = new Set<HTMLElement>();
+  const eventTypes = [hoverEventNames.join(':;'), interactionEventNames.join(':;')].join('|');
   for (let node of jsactionNodes) {
     const attr = node.getAttribute('jsaction');
     const blockId = node.getAttribute('ngb');
-    const eventTypes = [...hoverEventNames.join(':;'), ...interactionEventNames.join(':;')].join(
-      '|',
-    );
     if (attr?.match(eventTypes) && blockId !== null) {
       blockMap.add(node as HTMLElement);
     }
@@ -614,8 +646,8 @@ function gatherDeferBlocksByJSActionAttribute(doc: Document): Set<HTMLElement> {
 
 export function appendDeferBlocksToJSActionMap(doc: Document, injector: Injector) {
   const blockMap = gatherDeferBlocksByJSActionAttribute(doc);
+  const jsActionMap = injector.get(JSACTION_BLOCK_ELEMENT_MAP);
   for (let rNode of blockMap) {
-    const jsActionMap = injector.get(JSACTION_BLOCK_ELEMENT_MAP);
     sharedMapFunction(rNode, jsActionMap);
   }
 }
@@ -667,6 +699,22 @@ function getHydrateTimerTrigger(blockData: SerializedDeferBlock): number | null 
   return (trigger as SerializedTriggerDetails)?.delay ?? null;
 }
 
+function getHydrateViewportTrigger(
+  blockData: SerializedDeferBlock,
+): true | IntersectionObserverInit | null {
+  const details = blockData[DEFER_HYDRATE_TRIGGERS];
+  if (details) {
+    for (const current of details) {
+      if (current === DeferBlockTrigger.Viewport) {
+        return true;
+      } else if (typeof current === 'object' && current.trigger === DeferBlockTrigger.Viewport) {
+        return current.intersectionObserverOptions || true;
+      }
+    }
+  }
+  return null;
+}
+
 function hasHydrateTrigger(blockData: SerializedDeferBlock, trigger: DeferBlockTrigger): boolean {
   return blockData[DEFER_HYDRATE_TRIGGERS]?.includes(trigger) ?? false;
 }
@@ -682,7 +730,7 @@ function createBlockSummary(blockInfo: SerializedDeferBlock): BlockSummary {
       idle: hasHydrateTrigger(blockInfo, DeferBlockTrigger.Idle),
       immediate: hasHydrateTrigger(blockInfo, DeferBlockTrigger.Immediate),
       timer: getHydrateTimerTrigger(blockInfo),
-      viewport: hasHydrateTrigger(blockInfo, DeferBlockTrigger.Viewport),
+      viewport: getHydrateViewportTrigger(blockInfo),
     },
   };
 }
@@ -697,4 +745,66 @@ export function processBlockData(injector: Injector): Map<string, BlockSummary> 
     blockDetails.set(blockId, createBlockSummary(blockData[blockId]));
   }
   return blockDetails;
+}
+
+function isSsrContentsIntegrity(node: ChildNode | null): boolean {
+  return (
+    !!node &&
+    node.nodeType === Node.COMMENT_NODE &&
+    node.textContent?.trim() === SSR_CONTENT_INTEGRITY_MARKER
+  );
+}
+
+function skipTextNodes(node: ChildNode | null): ChildNode | null {
+  // Ignore whitespace. Before the <body>, we shouldn't find text nodes that aren't whitespace.
+  while (node && node.nodeType === Node.TEXT_NODE) {
+    node = node.previousSibling;
+  }
+  return node;
+}
+
+/**
+ * Verifies whether the DOM contains a special marker added during SSR time to make sure
+ * there is no SSR'ed contents transformations happen after SSR is completed. Typically that
+ * happens either by CDN or during the build process as an optimization to remove comment nodes.
+ * Hydration process requires comment nodes produced by Angular to locate correct DOM segments.
+ * When this special marker is *not* present - throw an error and do not proceed with hydration,
+ * since it will not be able to function correctly.
+ *
+ * Note: this function is invoked only on the client, so it's safe to use DOM APIs.
+ */
+export function verifySsrContentsIntegrity(doc: Document): void {
+  for (const node of doc.body.childNodes) {
+    if (isSsrContentsIntegrity(node)) {
+      return;
+    }
+  }
+
+  // Check if the HTML parser may have moved the marker to just before the <body> tag,
+  // e.g. because the body tag was implicit and not present in the markup. An implicit body
+  // tag is unlikely to interfer with whitespace/comments inside of the app's root element.
+
+  // Case 1: Implicit body. Example:
+  //   <!doctype html><head><title>Hi</title></head><!--nghm--><app-root></app-root>
+  const beforeBody = skipTextNodes(doc.body.previousSibling);
+  if (isSsrContentsIntegrity(beforeBody)) {
+    return;
+  }
+
+  // Case 2: Implicit body & head. Example:
+  //   <!doctype html><head><title>Hi</title><!--nghm--><app-root></app-root>
+  let endOfHead = skipTextNodes(doc.head.lastChild);
+  if (isSsrContentsIntegrity(endOfHead)) {
+    return;
+  }
+
+  throw new RuntimeError(
+    RuntimeErrorCode.MISSING_SSR_CONTENT_INTEGRITY_MARKER,
+    typeof ngDevMode !== 'undefined' &&
+      ngDevMode &&
+      'Angular hydration logic detected that HTML content of this page was modified after it ' +
+        'was produced during server side rendering. Make sure that there are no optimizations ' +
+        'that remove comment nodes from HTML enabled on your CDN. Angular hydration ' +
+        'relies on HTML produced by the server, including whitespaces and comment nodes.',
+  );
 }
