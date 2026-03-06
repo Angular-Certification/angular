@@ -104,6 +104,9 @@ importers:
       '@microsoft/api-extractor':
         specifier: ^7.24.2
         version: 7.57.6(@types/node@20.19.35)
+      '@netlify/angular-runtime':
+        specifier: ^2.1.0
+        version: 2.4.0
       '@rollup/plugin-babel':
         specifier: ^6.0.0
         version: 6.1.0(@babel/core@7.29.0)(@types/babel__core@7.20.5)(rollup@4.59.0)
@@ -3896,6 +3899,10 @@ packages:
 
   '@napi-rs/wasm-runtime@1.1.1':
     resolution: {integrity: sha512-p64ah1M1ld8xjWv3qbvFwHiFVWrq1yFvV4f7w+mzaqiR4IlSgkqhcRdHwsGgomwzBH51sRY4NEowLxnaBjcW/A==}
+
+  '@netlify/angular-runtime@2.4.0':
+    resolution: {integrity: sha512-S/8urhlwZTKIDvgwAMgpwvLdVlIOrPERN5YM9CcKrDu4UYy0k15X5mk5Ki/hJvij4K0dkzUdt+wbHfnENFJzCA==}
+    engines: {node: '>=18.13.0'}
 
   '@nginfra/angular-linking@1.0.10':
     resolution: {integrity: sha512-31zx+PCN8tBlC0FYUuCxS4uVPJLAlBhi4UVp6QgoQG44RsOHKTmcRORMVSJdPLRgRuCJkY45kj+PE3AxsgiUKA==}
@@ -16462,6 +16469,11 @@ snapshots:
       '@emnapi/runtime': 1.8.1
       '@tybys/wasm-util': 0.10.1
     optional: true
+
+  '@netlify/angular-runtime@2.4.0':
+    dependencies:
+      fs-extra: 11.3.3
+      semver: 7.7.4
 
   '@nginfra/angular-linking@1.0.10(@angular/compiler-cli@packages+compiler-cli)':
     dependencies:
