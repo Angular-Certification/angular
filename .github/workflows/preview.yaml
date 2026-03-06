@@ -3,13 +3,16 @@ on:
   pull_request:
     branches:
       - main
+
 env:
   NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_API_TOKEN }}
   NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}
+
 jobs:
   Deploy-Preview-Shared:
     runs-on: ubuntu-latest
     environment: Preview
+
     steps:
       - uses: actions/checkout@v4
 
@@ -17,19 +20,24 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20.x'
-          cache: 'yarn'
+          cache: 'pnpm'
+
+      - name: Enable Corepack (pnpm from package.json)
+        run: |
+          corepack enable
+          corepack prepare pnpm@10.30.3 --activate
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
 
       - name: Install Netlify CLI
-        run: yarn global add netlify-cli@17.23
+        run: pnpm add -g netlify-cli@17.23
 
       - name: Link Netlify project
         run: netlify link
 
-      - name: Install Dependencies
-        run: yarn install --frozen-lockfile
-
       - name: Build Project Artifacts
-        run: yarn docs:build
+        run: pnpm docs:build
 
       - name: Rename index.csr.html
         run: sudo mv ./dist/bin/adev/build/browser/index.csr.html ./dist/bin/adev/build/browser/index.html
