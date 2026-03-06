@@ -18,16 +18,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Enable Corepack
+        run: |
+          corepack enable
+          corepack prepare pnpm@10.30.3 --activate
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: 'pnpm'
-
-      - name: Enable Corepack
-        run: |
-          corepack enable
-          corepack prepare pnpm@10.30.3 --activate
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -35,22 +35,17 @@ jobs:
       - name: Install Netlify CLI
         run: pnpm add -g netlify-cli@17.23
 
-      - name: Link Netlify project
-        run: netlify link
-
       - name: Create .env file
         run: echo "${{ vars.ENV_FILE }}" > .env
 
       - name: Build Project Artifacts
         run: pnpm docs:build
 
-      - name: Rename index.csr.html
-        run: mv ./dist/bin/adev/build/browser/index.csr.html ./dist/bin/adev/build/browser/index.html
 
       - name: Deploy Project Artifacts to Netlify
         run: |
           netlify deploy \
-            --dir ./dist/bin/adev/build/browser \
+            --dir ./adev/dist/browser \
             --skip-functions-cache \
             --prod \
             --message "Action-${{ github.ref_name }}-${{ github.event.head_commit.message }}"

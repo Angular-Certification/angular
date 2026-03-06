@@ -16,16 +16,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Enable Corepack (pnpm from package.json)
+        run: |
+          corepack enable
+          corepack prepare pnpm@10.30.3 --activate
       - name: Use Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20.x'
           cache: 'pnpm'
-
-      - name: Enable Corepack (pnpm from package.json)
-        run: |
-          corepack enable
-          corepack prepare pnpm@10.30.3 --activate
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -40,15 +39,15 @@ jobs:
         run: pnpm docs:build
 
       - name: Rename index.csr.html
-        run: sudo mv ./dist/bin/adev/build/browser/index.csr.html ./dist/bin/adev/build/browser/index.html
+        run: mv adev/dist/browser/index.csr.html adev/dist/browser/index.html
 
       - name: Deploy Project Artifacts to Netlify
         run: |
           echo "Calculating meaningful string as alias"
           ALIAS=$(node -e "console.log('${{github.run_id}} ${{github.event.number}} ${{github.event.pull_request.title}}'.replaceAll(' ','-').substring(0,37))")
           echo "Alias: $ALIAS"
-          netlify deploy \
-            --dir ./dist/bin/adev/build/browser \
+            netlify deploy \
+            --dir ./adev/dist/browser \
             --skip-functions-cache \
             --alias $ALIAS \
             --message "GH Action-${{env.BRANCH_NAME}}-${{github.event.number}}_${{github.event.pull_request.title}}" \
