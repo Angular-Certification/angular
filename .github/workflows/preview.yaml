@@ -41,9 +41,6 @@ jobs:
       - name: Install Netlify CLI
         run: pnpm add -g netlify-cli@17.23
 
-      - name: Link Netlify project
-        run: netlify link
-
       - name: Set environment variables from secrets and create .env file
         run: |
           echo "${{ vars.ENV_FILE }}" > .env
