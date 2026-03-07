@@ -18,29 +18,36 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Enable Corepack
-        run: |
-          corepack enable
-          corepack prepare pnpm@10.30.3 --activate
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.30.3
+          run_install: false
 
-      - name: Setup Node.js
+      - name: Use Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: '24.x'
           cache: 'pnpm'
 
-      - name: Install dependencies
+      - name: Setup Bazel
+        uses: angular/dev-infra/github-actions/bazel/setup@9a88f495971c09574545e0ea0c2f6228b851e77a
+
+      - name: Install node modules
         run: pnpm install --frozen-lockfile
 
       - name: Install Netlify CLI
         run: pnpm add -g netlify-cli@17.23
 
-      - name: Create .env file
-        run: echo "${{ vars.ENV_FILE }}" > .env
+      - name: Set environment variables from secrets and create .env file
+        run: |
+          echo "${{ vars.ENV_FILE }}" > .env
 
       - name: Build Project Artifacts
-        run: pnpm docs:build
+        run: pnpm bazel build //adev:build
 
+      - name: Rename index.csr.html
+        run: mv ./dist/bin/adev/build/browser/index.csr.html ./dist/bin/adev/build/browser/index.html
 
       - name: Deploy Project Artifacts to Netlify
         run: |
