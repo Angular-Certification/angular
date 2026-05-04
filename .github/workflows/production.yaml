@@ -33,6 +33,7 @@ jobs:
         with:
           bazelisk-cache: true
           repository-cache: true
+          disk-cache: ${{ github.workflow }}
 
       - name: Install Dependencies
         run: pnpm install --frozen-lockfile
@@ -42,7 +43,7 @@ jobs:
           echo "${{ vars.ENV_FILE }}" > .env
 
       - name: Build adev
-        run: pnpm exec bazel build //adev:build
+        run: pnpm exec bazel build //adev:build --jobs=2 --local_ram_resources=5120
 
       - name: Prepare deploy directory
         run: |
