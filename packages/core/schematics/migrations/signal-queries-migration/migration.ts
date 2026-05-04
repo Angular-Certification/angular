@@ -6,14 +6,16 @@
  * found in the LICENSE file at https://angular.dev/license
  */
 
-import {ImportManager, PartialEvaluator} from '@angular/compiler-cli/private/migrations';
-import {getAngularDecorators, QueryFunctionName} from '@angular/compiler-cli/src/ngtsc/annotations';
-import {TypeScriptReflectionHost} from '@angular/compiler-cli/src/ngtsc/reflection';
-import assert from 'assert';
+import {
+  ImportManager,
+  PartialEvaluator,
+  getAngularDecorators,
+  QueryFunctionName,
+  TypeScriptReflectionHost,
+} from '@angular/compiler-cli/private/migrations';
 import ts from 'typescript';
 import {
   confirmAsSerializable,
-  MigrationStats,
   ProgramInfo,
   projectFile,
   Replacement,
@@ -25,6 +27,7 @@ import {
   ClassFieldDescriptor,
   ClassIncompatibilityReason,
   FieldIncompatibilityReason,
+  nonIgnorableFieldIncompatibilities,
 } from '../signal-migration/src';
 import {checkIncompatiblePatterns} from '../signal-migration/src/passes/problematic_patterns/common_incompatible_patterns';
 import {migrateHostBindings} from '../signal-migration/src/passes/reference_migration/migrate_host_bindings';
@@ -617,6 +620,15 @@ export class SignalQueriesMigration extends TsurgeComplexMigration<
         continue;
       }
 
+      // Do not count queries that were forcibly ignored via best effort mode.
+      if (
+        this.config.bestEffortMode &&
+        (info.fieldReason === null ||
+          !nonIgnorableFieldIncompatibilities.includes(info.fieldReason))
+      ) {
+        continue;
+      }
+
       incompatibleQueries++;
 
       if (info.classReason !== null) {
@@ -634,15 +646,13 @@ export class SignalQueriesMigration extends TsurgeComplexMigration<
       }
     }
 
-    return {
-      counters: {
-        queriesCount,
-        multiQueries,
-        incompatibleQueries,
-        ...fieldIncompatibleCounts,
-        ...classIncompatibleCounts,
-      },
-    };
+    return confirmAsSerializable({
+      queriesCount,
+      multiQueries,
+      incompatibleQueries,
+      ...fieldIncompatibleCounts,
+      ...classIncompatibleCounts,
+    });
   }
 }
 

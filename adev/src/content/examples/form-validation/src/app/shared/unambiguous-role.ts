@@ -1,5 +1,5 @@
 // #docregion
-import {Directive} from '@angular/core';
+import {Directive, forwardRef} from '@angular/core';
 import {
   AbstractControl,
   NG_VALIDATORS,
@@ -24,9 +24,12 @@ export const unambiguousRoleValidator: ValidatorFn = (
 @Directive({
   selector: '[appUnambiguousRole]',
   providers: [
-    {provide: NG_VALIDATORS, useExisting: UnambiguousRoleValidatorDirective, multi: true},
+    {
+      provide: NG_VALIDATORS,
+      useExisting: forwardRef(() => UnambiguousRoleValidatorDirective),
+      multi: true,
+    },
   ],
-  standalone: false,
 })
 export class UnambiguousRoleValidatorDirective implements Validator {
   validate(control: AbstractControl): ValidationErrors | null {

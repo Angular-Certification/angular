@@ -7,9 +7,15 @@
  */
 
 import {DOCUMENT} from '@angular/common';
-import {ApplicationRef, PLATFORM_ID, Provider, Type, ɵsetDocument} from '@angular/core';
-import {CLIENT_RENDER_MODE_FLAG} from '@angular/core/src/hydration/api';
-import {getComponentDef} from '@angular/core/src/render3/def_getters';
+import {
+  ApplicationRef,
+  PLATFORM_ID,
+  Provider,
+  Type,
+  ɵsetDocument,
+  ɵCLIENT_RENDER_MODE_FLAG as CLIENT_RENDER_MODE_FLAG,
+  ɵgetComponentDef as getComponentDef,
+} from '@angular/core';
 import {
   bootstrapApplication,
   HydrationFeature,
@@ -93,19 +99,21 @@ export function hydrate(
     hydrationFeatures?: () => HydrationFeature<HydrationFeatureKind>[];
   } = {},
 ) {
-  function _document(): any {
-    ɵsetDocument(doc);
-    global.document = doc; // needed for `DefaultDomRenderer2`
-    return doc;
-  }
-
   const {envProviders = [], hydrationFeatures = () => []} = options;
 
+  // Apply correct reference to the `document` object,
+  // which will be used by runtime.
+  ɵsetDocument(doc);
+
+  // Define `document` to make `DefaultDomRenderer2` work, since it
+  // references `document` directly to create style tags.
+  global.document = doc;
+
   const providers = [
-    ...envProviders,
     {provide: PLATFORM_ID, useValue: 'browser'},
-    {provide: DOCUMENT, useFactory: _document, deps: []},
+    {provide: DOCUMENT, useFactory: () => doc},
     provideClientHydration(...hydrationFeatures()),
+    ...envProviders,
   ];
 
   return bootstrapApplication(component, {providers});

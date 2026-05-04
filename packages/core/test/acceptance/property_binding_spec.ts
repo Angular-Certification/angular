@@ -7,11 +7,25 @@
  */
 import {state, style, trigger} from '@angular/animations';
 import {CommonModule} from '@angular/common';
-import {Component, Directive, EventEmitter, Input, Output, ViewContainerRef} from '@angular/core';
-import {TestBed} from '@angular/core/testing';
 import {By, DomSanitizer, SafeUrl} from '@angular/platform-browser';
+import {NoopAnimationsModule} from '@angular/platform-browser/animations';
+import {
+  Component,
+  Directive,
+  EventEmitter,
+  Input,
+  Output,
+  provideZoneChangeDetection,
+  ViewContainerRef,
+} from '../../src/core';
+import {TestBed} from '../../testing';
 
 describe('property bindings', () => {
+  beforeEach(() => {
+    TestBed.configureTestingModule({
+      providers: [provideZoneChangeDetection()],
+    });
+  });
   it('should support bindings to properties', () => {
     @Component({
       template: `<span [id]="id"></span>`,
@@ -75,13 +89,11 @@ describe('property bindings', () => {
   it('should bind to properties whose names do not correspond to their attribute names', () => {
     @Component({
       template: '<label [for]="forValue"></label>',
-      standalone: false,
     })
     class MyComp {
       forValue?: string;
     }
 
-    TestBed.configureTestingModule({declarations: [MyComp]});
     const fixture = TestBed.createComponent(MyComp);
     const labelNode = fixture.debugElement.query(By.css('label'));
 
@@ -103,7 +115,6 @@ describe('property bindings', () => {
       @Component({
         template: '',
         selector: 'my-comp',
-        standalone: false,
       })
       class MyComp {
         @Input() for!: string;
@@ -111,13 +122,12 @@ describe('property bindings', () => {
 
       @Component({
         template: '<my-comp [for]="forValue"></my-comp>',
-        standalone: false,
+        imports: [MyComp],
       })
       class App {
         forValue?: string;
       }
 
-      TestBed.configureTestingModule({declarations: [App, MyComp]});
       const fixture = TestBed.createComponent(App);
       const myCompNode = fixture.debugElement.query(By.directive(MyComp));
       fixture.componentInstance.forValue = 'hello';
@@ -132,11 +142,178 @@ describe('property bindings', () => {
     },
   );
 
+  it('should bind ARIA properties', () => {
+    @Component({
+      template: '<button [ariaLabel]="label" [ariaHasPopup]="hasPopup"></button>',
+    })
+    class MyComp {
+      label?: string;
+      hasPopup?: string;
+    }
+
+    const fixture = TestBed.createComponent(MyComp);
+    const button = fixture.debugElement.query(By.css('button')).nativeElement as HTMLButtonElement;
+
+    fixture.componentInstance.label = 'Open';
+    fixture.componentInstance.hasPopup = 'menu';
+    fixture.detectChanges();
+
+    expect(button.ariaLabel).toBe('Open');
+    expect(button.ariaHasPopup).toBe('menu');
+
+    fixture.componentInstance.label = 'Close';
+    fixture.detectChanges();
+
+    expect(button.ariaLabel).toBe('Close');
+  });
+
+  it('should bind interpolated ARIA attributes', () => {
+    @Component({
+      template: '<button aria-label="{{label}} menu"></button>',
+    })
+    class MyComp {
+      label?: string;
+    }
+
+    const fixture = TestBed.createComponent(MyComp);
+    const button = fixture.debugElement.query(By.css('button')).nativeElement;
+
+    fixture.componentInstance.label = 'Open';
+    fixture.detectChanges();
+
+    expect(button.getAttribute('aria-label')).toBe('Open menu');
+
+    fixture.componentInstance.label = 'Close';
+    fixture.detectChanges();
+
+    expect(button.getAttribute('aria-label')).toBe('Close menu');
+  });
+
+  describe('should bind to ARIA attribute names', () => {
+    it('on HTML elements', () => {
+      @Component({
+        template: '<button [aria-label]="label"></button>',
+      })
+      class MyComp {
+        label?: string;
+      }
+
+      const fixture = TestBed.createComponent(MyComp);
+      const button = fixture.debugElement.query(By.css('button')).nativeElement;
+
+      fixture.componentInstance.label = 'Open';
+      fixture.detectChanges();
+
+      expect(button.getAttribute('aria-label')).toBe('Open');
+
+      fixture.componentInstance.label = 'Close';
+      fixture.detectChanges();
+
+      expect(button.getAttribute('aria-label')).toBe('Close');
+    });
+
+    it('on component elements', () => {
+      @Component({
+        selector: 'button[fancy]',
+      })
+      class FancyButton {}
+
+      @Component({
+        template: '<button fancy [aria-label]="label"></button>',
+        imports: [FancyButton],
+      })
+      class MyComp {
+        label?: string;
+      }
+
+      const fixture = TestBed.createComponent(MyComp);
+      const button = fixture.debugElement.query(By.css('button')).nativeElement;
+
+      fixture.componentInstance.label = 'Open';
+      fixture.detectChanges();
+
+      expect(button.getAttribute('aria-label')).toBe('Open');
+
+      fixture.componentInstance.label = 'Close';
+      fixture.detectChanges();
+
+      expect(button.getAttribute('aria-label')).toBe('Close');
+    });
+  });
+
+  it('should no bind to ARIA properties if they correspond to inputs', () => {
+    @Component({
+      template: '',
+      selector: 'my-comp',
+    })
+    class MyComp {
+      @Input() ariaLabel?: string;
+    }
+
+    @Component({
+      template: '<my-comp [ariaLabel]="label"></my-comp>',
+      imports: [MyComp],
+    })
+    class App {
+      label = 'a';
+    }
+
+    const fixture = TestBed.createComponent(App);
+    const myCompNode = fixture.debugElement.query(By.directive(MyComp));
+
+    fixture.componentInstance.label = 'a';
+    fixture.detectChanges();
+
+    expect(myCompNode.nativeElement.getAttribute('aria-label')).toBeFalsy();
+    expect(myCompNode.componentInstance.ariaLabel).toBe('a');
+
+    fixture.componentInstance.label = 'b';
+    fixture.detectChanges();
+
+    expect(myCompNode.nativeElement.getAttribute('aria-label')).toBeFalsy();
+    expect(myCompNode.componentInstance.ariaLabel).toBe('b');
+  });
+
+  it(
+    'should not bind to ARIA properties by their corresponding attribute names, if they ' +
+      'correspond to inputs',
+    () => {
+      @Component({
+        template: '',
+        selector: 'my-comp',
+      })
+      class MyComp {
+        @Input({alias: 'aria-label'}) myAriaLabel?: string;
+      }
+
+      @Component({
+        template: '<my-comp [aria-label]="label"></my-comp>',
+        imports: [MyComp],
+      })
+      class App {
+        label = 'a';
+      }
+
+      const fixture = TestBed.createComponent(App);
+      const myCompNode = fixture.debugElement.query(By.directive(MyComp));
+
+      fixture.componentInstance.label = 'a';
+      fixture.detectChanges();
+
+      expect(myCompNode.nativeElement.getAttribute('aria-label')).toBeFalsy();
+      expect(myCompNode.componentInstance.myAriaLabel).toBe('a');
+
+      fixture.componentInstance.label = 'b';
+      fixture.detectChanges();
+
+      expect(myCompNode.nativeElement.getAttribute('aria-label')).toBeFalsy();
+      expect(myCompNode.componentInstance.myAriaLabel).toBe('b');
+    },
+  );
+
   it('should use the sanitizer in bound properties', () => {
     @Component({
-      template: `
-        <a [href]="url">
-      `,
+      template: ` <a [href]="url"> </a> `,
       standalone: false,
     })
     class App {
@@ -161,7 +338,7 @@ describe('property bindings', () => {
 
   it('should not stringify non-string values', () => {
     @Component({
-      template: `<input [required]="isRequired"/>`,
+      template: `<input [required]="isRequired" />`,
       standalone: false,
     })
     class Comp {
@@ -177,7 +354,7 @@ describe('property bindings', () => {
 
   it('should support interpolation for properties', () => {
     @Component({
-      template: `<span id="{{'_' + id + '_'}}"></span>`,
+      template: `<span id="{{ '_' + id + '_' }}"></span>`,
       standalone: false,
     })
     class Comp {
@@ -431,6 +608,34 @@ describe('property bindings', () => {
       expect(idDir.idNumber).toBe('four');
       expect(otherDir.id).toBe(3);
     });
+
+    it('should support input bindings named "field"', () => {
+      // Angular has specialized support for binding to form controls (e.g. `[field]="field"`).
+      // This test ensures that `[field]` property bindings can still target other inputs bearing
+      // the same name.
+
+      @Directive({selector: '[field]'})
+      class Field {
+        @Input() field = 'Default control value';
+      }
+
+      @Component({
+        template: ` <div [field]="value"></div> `,
+        imports: [Field],
+      })
+      class App {
+        value?: string;
+      }
+
+      const fixture = TestBed.createComponent(App);
+      const control = fixture.debugElement.query(By.directive(Field)).injector.get(Field);
+      expect(control.field).toBe('Default control value');
+
+      fixture.componentInstance.value = 'Bound control value';
+      fixture.detectChanges();
+
+      expect(control.field).toBe('Bound control value');
+    });
   });
 
   describe('attributes and input properties', () => {
@@ -625,6 +830,7 @@ describe('property bindings', () => {
     });
 
     it('should process attributes properly inside a for loop', () => {
+      // prettier-ignore
       @Component({
         selector: 'comp',
         template: `<div role="button" myDir #dir="myDir"></div>role: {{dir.role}}`,
@@ -632,6 +838,7 @@ describe('property bindings', () => {
       })
       class Comp {}
 
+      // prettier-ignore
       @Component({
         template: `
           <comp *ngFor="let i of [0, 1]"></comp>
@@ -689,7 +896,10 @@ describe('property bindings', () => {
     })
     class App {}
 
-    TestBed.configureTestingModule({declarations: [App, MyDir, MyComp]});
+    TestBed.configureTestingModule({
+      declarations: [App, MyDir, MyComp],
+      imports: [NoopAnimationsModule],
+    });
 
     expect(() => {
       const fixture = TestBed.createComponent(App);

@@ -43,6 +43,15 @@ export class LanguageServiceAdapter implements NgCompilerAdapter {
     this.rootDirs = getRootDirs(this, project.getCompilationSettings());
   }
 
+  getSourceFile(
+    fileName: string,
+    languageVersion: ts.ScriptTarget,
+    onError?: (message: string) => void,
+    shouldCreateNewSourceFile?: boolean,
+  ): ts.SourceFile | undefined {
+    return this.project.getSourceFile(this.project.projectService.toPath(fileName));
+  }
+
   resourceNameToFileName(
     url: string,
     fromFile: string,
@@ -104,7 +113,8 @@ export class LanguageServiceAdapter implements NgCompilerAdapter {
    */
   readResource(fileName: string): string {
     if (isTypeScriptFile(fileName)) {
-      throw new Error(`readResource() should not be called on TS file: ${fileName}`);
+      console.error(`readResource() should not be called on TS file: ${fileName}`);
+      return '';
     }
     // Calling getScriptSnapshot() will actually create a ScriptInfo if it does
     // not exist! The same applies for getScriptVersion().
@@ -115,8 +125,9 @@ export class LanguageServiceAdapter implements NgCompilerAdapter {
     this.lastReadResourceVersion.set(fileName, version);
     const scriptInfo = this.project.getScriptInfo(fileName);
     if (!scriptInfo) {
-      // // This should not happen because it would have failed already at `getScriptVersion`.
-      throw new Error(`Failed to get script info when trying to read ${fileName}`);
+      // This should not happen because it would have failed already at `getScriptVersion`.
+      console.error(`Failed to get script info when trying to read ${fileName}`);
+      return '';
     }
     // Add external resources as root files to the project since we project language service
     // features for them (this is currently only the case for HTML files, but we could investigate
@@ -155,7 +166,8 @@ export class LSParseConfigHost implements ConfigurationHost {
   readFile(path: AbsoluteFsPath): string {
     const content = this.serverHost.readFile(path);
     if (content === undefined) {
-      throw new Error(`LanguageServiceFS#readFile called on unavailable file ${path}`);
+      console.error(`LanguageServiceFS#readFile called on unavailable file ${path}`);
+      return '';
     }
     return content;
   }

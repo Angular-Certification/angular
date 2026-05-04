@@ -6,8 +6,15 @@
  * found in the LICENSE file at https://angular.dev/license
  */
 
-import {Component, Injector, TemplateRef, ViewChild, ViewContainerRef} from '@angular/core';
-import {TestBed} from '@angular/core/testing';
+import {
+  Component,
+  Injector,
+  provideNgReflectAttributes,
+  TemplateRef,
+  ViewChild,
+  ViewContainerRef,
+} from '../../src/core';
+import {TestBed} from '../../testing';
 
 describe('TemplateRef', () => {
   describe('rootNodes', () => {
@@ -50,11 +57,11 @@ describe('TemplateRef', () => {
       @Component({
         selector: 'menu-content',
         template: `
-              <ng-template>
-                Header
-                <ng-content></ng-content>
-              </ng-template>
-            `,
+          <ng-template>
+            Header
+            <ng-content></ng-content>
+          </ng-template>
+        `,
         exportAs: 'menuContent',
         standalone: false,
       })
@@ -64,12 +71,12 @@ describe('TemplateRef', () => {
 
       @Component({
         template: `
-              <menu-content #menu="menuContent">
-                <button>Item one</button>
-                <button>Item two</button>
-                <ng-template [ngIf]="true"><button>Item three</button></ng-template>
-              </menu-content>
-            `,
+          <menu-content #menu="menuContent">
+            <button>Item one</button>
+            <button>Item two</button>
+            <ng-template [ngIf]="true"><button>Item three</button></ng-template>
+          </menu-content>
+        `,
         standalone: false,
       })
       class App {
@@ -78,7 +85,10 @@ describe('TemplateRef', () => {
         constructor(public viewContainerRef: ViewContainerRef) {}
       }
 
-      TestBed.configureTestingModule({declarations: [MenuContent, App]});
+      TestBed.configureTestingModule({
+        declarations: [MenuContent, App],
+        providers: [provideNgReflectAttributes()],
+      });
       const fixture = TestBed.createComponent(App);
       fixture.detectChanges();
 
@@ -261,9 +271,9 @@ describe('TemplateRef', () => {
   describe('context', () => {
     @Component({
       template: `
-      <ng-template #templateRef let-name="name">{{name}}</ng-template>
-      <ng-container #containerRef></ng-container>
-    `,
+        <ng-template #templateRef let-name="name">{{ name }}</ng-template>
+        <ng-container #containerRef></ng-container>
+      `,
       standalone: false,
     })
     class App {
@@ -283,6 +293,7 @@ describe('TemplateRef', () => {
       expect(fixture.nativeElement.textContent).toBe('Frodo');
 
       context.name = 'Bilbo';
+      fixture.changeDetectorRef.markForCheck();
       fixture.detectChanges();
 
       expect(fixture.nativeElement.textContent).toBe('Bilbo');
@@ -299,6 +310,7 @@ describe('TemplateRef', () => {
       expect(fixture.nativeElement.textContent).toBe('Frodo');
 
       viewRef.context = {name: 'Bilbo'};
+      fixture.changeDetectorRef.markForCheck();
       fixture.detectChanges();
 
       expect(fixture.nativeElement.textContent).toBe('Bilbo');
@@ -337,6 +349,7 @@ describe('TemplateRef', () => {
       expect(events).toEqual(['Frodo']);
 
       viewRef.context = {name: 'Bilbo'};
+      fixture.changeDetectorRef.markForCheck();
       fixture.detectChanges();
       button.click();
       expect(events).toEqual(['Frodo', 'Bilbo']);
@@ -354,6 +367,7 @@ describe('TemplateRef', () => {
       spyOn(console, 'warn');
 
       viewRef.context = {name: 'Bilbo'};
+      fixture.changeDetectorRef.markForCheck();
       fixture.detectChanges();
 
       expect(console.warn).toHaveBeenCalledTimes(1);

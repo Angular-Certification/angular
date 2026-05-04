@@ -5,8 +5,8 @@
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file at https://angular.dev/license
  */
-import {Component} from '@angular/core';
-import {DeferBlockBehavior, DeferBlockState, TestBed} from '@angular/core/testing';
+import {Component} from '../../src/core';
+import {DeferBlockBehavior, DeferBlockState, TestBed} from '../../testing';
 
 import {getDeferBlocks} from '../../src/render3/util/defer';
 
@@ -280,9 +280,9 @@ describe('@defer debugging utilities', () => {
           Loaded
         } @placeholder {
           @let one = 1;
-          One is {{one}}
+          One is {{ one }}
           @let two = one + 1;
-          Two is {{two}}
+          Two is {{ two }}
         }
         After
       `,
@@ -299,6 +299,26 @@ describe('@defer debugging utilities', () => {
 
     const [block] = await fixture.getDeferBlocks();
     await block.render(DeferBlockState.Complete);
+  });
+
+  it('should return the host comment node of the currently-rendered block', () => {
+    @Component({
+      template: `
+        @defer (when false) {
+          Loaded
+        }
+      `,
+    })
+    class App {}
+
+    const fixture = TestBed.createComponent(App);
+    fixture.detectChanges();
+
+    const results = getDeferBlocks(fixture.nativeElement);
+
+    expect(results.length).toBe(1);
+    expect(results[0].hostNode).toBeTruthy();
+    expect(stringifyNodes([results[0].hostNode])).toEqual(['Comment(container)']);
   });
 
   function stringifyNodes(nodes: Node[]): string[] {

@@ -20,15 +20,14 @@ import {
   ViewChildren,
   viewChildren,
 } from '@angular/core';
-import {SIGNAL} from '@angular/core/primitives/signals';
-import {TestBed} from '@angular/core/testing';
+import {SIGNAL} from '../../../primitives/signals';
+import {TestBed} from '../../../testing';
 import {By} from '@angular/platform-browser';
 
 describe('queries as signals', () => {
   describe('view', () => {
     it('should query for an optional element in a template', () => {
       @Component({
-        standalone: true,
         template: `<div #el></div>`,
       })
       class AppComponent {
@@ -51,7 +50,6 @@ describe('queries as signals', () => {
       let result: {} | undefined = {};
 
       @Component({
-        standalone: true,
         template: `<div #el></div>`,
       })
       class AppComponent {
@@ -68,7 +66,6 @@ describe('queries as signals', () => {
 
     it('should query for a required element in a template', () => {
       @Component({
-        standalone: true,
         template: `<div #el></div>`,
       })
       class AppComponent {
@@ -86,28 +83,8 @@ describe('queries as signals', () => {
       expect(fixture.componentInstance.foundEl()).toBeTrue();
     });
 
-    it('should throw if required query is read in the constructor', () => {
-      @Component({
-        standalone: true,
-        template: `<div #el></div>`,
-      })
-      class AppComponent {
-        divEl = viewChild.required<ElementRef<HTMLDivElement>>('el');
-
-        constructor() {
-          this.divEl();
-        }
-      }
-
-      // non-required query results are undefined before we run creation mode on the view queries
-      expect(() => {
-        TestBed.createComponent(AppComponent);
-      }).toThrowError(/NG0951: Child query result is required but no value is available/);
-    });
-
     it('should query for multiple elements in a template', () => {
       @Component({
-        standalone: true,
         template: `
           <div #el></div>
           @if (show) {
@@ -132,10 +109,12 @@ describe('queries as signals', () => {
       expect(fixture.componentInstance.foundEl()).toBe(1);
 
       fixture.componentInstance.show = true;
+      fixture.changeDetectorRef.markForCheck();
       fixture.detectChanges();
       expect(fixture.componentInstance.foundEl()).toBe(2);
 
       fixture.componentInstance.show = false;
+      fixture.changeDetectorRef.markForCheck();
       fixture.detectChanges();
       expect(fixture.componentInstance.foundEl()).toBe(1);
     });
@@ -144,7 +123,6 @@ describe('queries as signals', () => {
       let result: readonly ElementRef[] | undefined;
 
       @Component({
-        standalone: true,
         template: `<div #el></div>`,
       })
       class AppComponent {
@@ -161,7 +139,6 @@ describe('queries as signals', () => {
 
     it('should return the same array instance when there were no changes in results', () => {
       @Component({
-        standalone: true,
         template: `<div #el></div>`,
       })
       class AppComponent {
@@ -183,13 +160,12 @@ describe('queries as signals', () => {
       let computeCount = 0;
 
       @Component({
-        standalone: true,
         template: `
+          <div #el></div>
+          @if (show) {
             <div #el></div>
-            @if (show) {
-              <div #el></div>
-            }
-          `,
+          }
+        `,
       })
       class AppComponent {
         divEl = viewChild.required<ElementRef<HTMLDivElement>>('el');
@@ -205,6 +181,7 @@ describe('queries as signals', () => {
       // subsequent reads should return the same result instance and _not_ trigger downstream
       // computed re-evaluation
       fixture.componentInstance.show = true;
+      fixture.changeDetectorRef.markForCheck();
       fixture.detectChanges();
       expect(fixture.componentInstance.divEl()).toBe(divEl);
       expect(fixture.componentInstance.isThere()).toBe(1);
@@ -212,13 +189,12 @@ describe('queries as signals', () => {
 
     it('should return the same array instance when there were no changes in results after view manipulation', () => {
       @Component({
-        standalone: true,
         template: `
-            <div #el></div>
-            @if (show) {
-              <div></div>
-            }
-          `,
+          <div #el></div>
+          @if (show) {
+            <div></div>
+          }
+        `,
       })
       class AppComponent {
         divEls = viewChildren<ElementRef<HTMLDivElement>>('el');
@@ -232,6 +208,7 @@ describe('queries as signals', () => {
       expect(result1.length).toBe(1);
 
       fixture.componentInstance.show = true;
+      fixture.changeDetectorRef.markForCheck();
       fixture.detectChanges();
       // subsequent reads should return the same result instance since the query results didn't
       // change
@@ -242,7 +219,6 @@ describe('queries as signals', () => {
 
     it('should be empty when no query matches exist', () => {
       @Component({
-        standalone: true,
         template: ``,
       })
       class AppComponent {
@@ -259,7 +235,6 @@ describe('queries as signals', () => {
 
     it('should assign a debugName to the underlying signal node when a debugName is provided', () => {
       @Component({
-        standalone: true,
         template: `<div #el></div>`,
       })
       class AppComponent {
@@ -282,7 +257,6 @@ describe('queries as signals', () => {
 
     it('should assign a debugName to the underlying signal node when a debugName is provided to a required viewChild query', () => {
       @Component({
-        standalone: true,
         template: `<div #el></div>`,
       })
       class AppComponent {
@@ -299,8 +273,7 @@ describe('queries as signals', () => {
     it('should run content queries defined on components', () => {
       @Component({
         selector: 'query-cmp',
-        standalone: true,
-        template: `{{noOfEls()}}`,
+        template: `{{ noOfEls() }}`,
       })
       class QueryComponent {
         elements = contentChildren('el');
@@ -316,11 +289,10 @@ describe('queries as signals', () => {
       }
 
       @Component({
-        standalone: true,
         imports: [QueryComponent],
         template: `
           <query-cmp>
-            <div #el></div >
+            <div #el></div>
             @if (show) {
               <div #el></div>
             }
@@ -336,10 +308,12 @@ describe('queries as signals', () => {
       expect(fixture.nativeElement.textContent).toBe('3');
 
       fixture.componentInstance.show = true;
+      fixture.changeDetectorRef.markForCheck();
       fixture.detectChanges();
       expect(fixture.nativeElement.textContent).toBe('4');
 
       fixture.componentInstance.show = false;
+      fixture.changeDetectorRef.markForCheck();
       fixture.detectChanges();
       expect(fixture.nativeElement.textContent).toBe('3');
     });
@@ -347,7 +321,6 @@ describe('queries as signals', () => {
     it('should run content queries defined on directives', () => {
       @Directive({
         selector: '[query]',
-        standalone: true,
         host: {'[textContent]': `noOfEls()`},
       })
       class QueryDir {
@@ -364,7 +337,6 @@ describe('queries as signals', () => {
       }
 
       @Component({
-        standalone: true,
         imports: [QueryDir],
         template: `
           <div query>
@@ -384,27 +356,28 @@ describe('queries as signals', () => {
       expect(fixture.nativeElement.textContent).toBe('3');
 
       fixture.componentInstance.show = true;
+      fixture.changeDetectorRef.markForCheck();
       fixture.detectChanges();
       expect(fixture.nativeElement.textContent).toBe('4');
 
       fixture.componentInstance.show = false;
+      fixture.changeDetectorRef.markForCheck();
       fixture.detectChanges();
       expect(fixture.nativeElement.textContent).toBe('3');
     });
 
     it('should not return partial results during the first-time view rendering', () => {
-      @Directive({selector: '[marker]', standalone: true})
+      @Directive({selector: '[marker]'})
       class MarkerForResults {}
 
       @Directive({
         selector: '[declare]',
-        standalone: true,
       })
       class DeclareQuery {
         results = contentChildren(MarkerForResults);
       }
 
-      @Directive({selector: '[inspect]', standalone: true})
+      @Directive({selector: '[inspect]'})
       class InspectsQueryResults {
         constructor(declaration: DeclareQuery) {
           // we should _not_ get partial query results while the view is still creating
@@ -413,15 +386,14 @@ describe('queries as signals', () => {
       }
 
       @Component({
-        standalone: true,
         imports: [MarkerForResults, InspectsQueryResults, DeclareQuery],
         template: `
-                <div declare>
-                  <div marker></div>
-                  <div inspect></div>
-                  <div marker></div>
-                </div>
-             `,
+          <div declare>
+            <div marker></div>
+            <div inspect></div>
+            <div marker></div>
+          </div>
+        `,
       })
       class AppComponent {}
 
@@ -437,7 +409,6 @@ describe('queries as signals', () => {
     it('should be empty when no query matches exist', () => {
       @Directive({
         selector: '[declare]',
-        standalone: true,
       })
       class DeclareQuery {
         result = contentChild('unknown');
@@ -445,7 +416,6 @@ describe('queries as signals', () => {
       }
 
       @Component({
-        standalone: true,
         imports: [DeclareQuery],
         template: `<div declare></div>`,
       })
@@ -464,7 +434,6 @@ describe('queries as signals', () => {
     it('should assign a debugName to the underlying signal node when a debugName is provided', () => {
       @Component({
         selector: 'query-cmp',
-        standalone: true,
         template: ``,
       })
       class QueryComponent {
@@ -476,7 +445,6 @@ describe('queries as signals', () => {
       }
 
       @Component({
-        standalone: true,
         imports: [QueryComponent],
         template: `
           <query-cmp>
@@ -508,7 +476,6 @@ describe('queries as signals', () => {
       let recomputeCount = 0;
 
       @Component({
-        standalone: true,
         template: `
           <div #el></div>
           @if (show) {
@@ -532,8 +499,10 @@ describe('queries as signals', () => {
 
       // trigger view manipulation that should dirty queries but not change the results
       fixture.componentInstance.show = true;
+      fixture.changeDetectorRef.markForCheck();
       fixture.detectChanges();
       fixture.componentInstance.show = false;
+      fixture.changeDetectorRef.markForCheck();
       fixture.detectChanges();
 
       expect(fixture.componentInstance.foundElCount()).toBe(1);
@@ -544,7 +513,6 @@ describe('queries as signals', () => {
       let recomputeCount = 0;
 
       @Component({
-        standalone: true,
         template: `
           <div #el></div>
           @if (show) {
@@ -569,8 +537,10 @@ describe('queries as signals', () => {
 
       // trigger view manipulation that should dirty queries but not change the results
       fixture.componentInstance.show = true;
+      fixture.changeDetectorRef.markForCheck();
       fixture.detectChanges();
       fixture.componentInstance.show = false;
+      fixture.changeDetectorRef.markForCheck();
       fixture.detectChanges();
 
       expect(fixture.componentInstance.foundElCount()).toBe(1);
@@ -583,7 +553,6 @@ describe('queries as signals', () => {
       // https://github.com/angular/angular/issues/54450
       @Component({
         selector: 'query-cmp',
-        standalone: true,
         template: ``,
       })
       class QueryComponent {
@@ -592,7 +561,6 @@ describe('queries as signals', () => {
       }
 
       @Component({
-        standalone: true,
         template: ``,
       })
       class TestComponent {
@@ -615,7 +583,6 @@ describe('queries as signals', () => {
   describe('mix of signal and decorator queries', () => {
     it('should allow specifying both types of queries in one component', () => {
       @Component({
-        standalone: true,
         template: `
           <div #el></div>
           @if (show) {
@@ -637,11 +604,13 @@ describe('queries as signals', () => {
       expect(fixture.componentInstance.divElsDecorator.length).toBe(1);
 
       fixture.componentInstance.show = true;
+      fixture.changeDetectorRef.markForCheck();
       fixture.detectChanges();
       expect(fixture.componentInstance.divElsSignal().length).toBe(2);
       expect(fixture.componentInstance.divElsDecorator.length).toBe(2);
 
       fixture.componentInstance.show = false;
+      fixture.changeDetectorRef.markForCheck();
       fixture.detectChanges();
       expect(fixture.componentInstance.divElsSignal().length).toBe(1);
       expect(fixture.componentInstance.divElsDecorator.length).toBe(1);
@@ -649,13 +618,12 @@ describe('queries as signals', () => {
 
     it('should allow combination via inheritance of both types of queries in one component', () => {
       @Component({
-        standalone: true,
         template: `
+          <div #el></div>
+          @if (show) {
             <div #el></div>
-            @if (show) {
-              <div #el></div>
-            }
-          `,
+          }
+        `,
       })
       class BaseComponent {
         show = false;
@@ -663,13 +631,12 @@ describe('queries as signals', () => {
       }
 
       @Component({
-        standalone: true,
         template: `
+          <div #el></div>
+          @if (show) {
             <div #el></div>
-            @if (show) {
-              <div #el></div>
-            }
-          `,
+          }
+        `,
       })
       class AppComponent extends BaseComponent {
         @ViewChildren('el') divElsDecorator!: QueryList<ElementRef<HTMLDivElement>>;
@@ -681,11 +648,13 @@ describe('queries as signals', () => {
       expect(fixture.componentInstance.divElsDecorator.length).toBe(1);
 
       fixture.componentInstance.show = true;
+      fixture.changeDetectorRef.markForCheck();
       fixture.detectChanges();
       expect(fixture.componentInstance.divElsSignal().length).toBe(2);
       expect(fixture.componentInstance.divElsDecorator.length).toBe(2);
 
       fixture.componentInstance.show = false;
+      fixture.changeDetectorRef.markForCheck();
       fixture.detectChanges();
       expect(fixture.componentInstance.divElsSignal().length).toBe(1);
       expect(fixture.componentInstance.divElsDecorator.length).toBe(1);

@@ -22,10 +22,10 @@ ng generate @angular/core:output-migration
 **Before**
 
 ```typescript
-import {Component, Output} from '@angular/core';
+import {Component, Output, EventEmitter} from '@angular/core';
 
 @Component({
-  template: `<button (click)="someMethod('test')">emit</button>`
+  template: `<button (click)="someMethod('test')">emit</button>`,
 })
 export class MyComponent {
   @Output() someChange = new EventEmitter<string>();
@@ -42,7 +42,7 @@ export class MyComponent {
 import {Component, output} from '@angular/core';
 
 @Component({
-  template: `<button (click)="someMethod('test')">emit</button>`
+  template: `<button (click)="someMethod('test')">emit</button>`,
 })
 export class MyComponent {
   readonly someChange = output<string>();
@@ -80,7 +80,7 @@ ng generate @angular/core:output-migration --path src/app/sub-folder
 ## Exceptions
 
 In some cases, the migration will not touch the code.
-One of these excpetions is the case where the event is used with a `pipe()` method.
+One of these exceptions is the case where the event is used with a `pipe()` method.
 The following code won't be migrated:
 
 ```typescript

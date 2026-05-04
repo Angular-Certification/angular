@@ -5,6 +5,9 @@
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file at https://angular.dev/license
  */
+
+/// <reference path="../../../../goog.d.ts" />
+
 import {assertDefined} from '../../util/assert';
 import {global} from '../../util/global';
 import {setupFrameworkInjectorProfiler} from '../debug/framework_injector_profiler';
@@ -14,6 +17,7 @@ import {isSignal} from '../reactivity/api';
 import {applyChanges} from './change_detection_utils';
 import {getDeferBlocks} from './defer';
 import {
+  DirectiveDebugMetadata,
   getComponent,
   getContext,
   getDirectiveMetadata,
@@ -31,6 +35,9 @@ import {
   getInjectorResolutionPath,
 } from './injector_discovery_utils';
 import {getSignalGraph} from './signal_debug';
+
+import {enableProfiling} from '../debug/chrome_dev_tools_performance';
+import {getTransferState} from './transfer_state_utils';
 
 /**
  * This file introduces series of globally accessible debug tools
@@ -52,8 +59,10 @@ export const GLOBAL_PUBLISH_EXPANDO_KEY = 'ng';
 // Typing for externally published global util functions
 // Ideally we should be able to use `NgGlobalPublishUtils` using declaration merging but that doesn't work with API extractor yet.
 // Have included the typings to have type safety when working with editors that support it (VSCode).
-interface NgGlobalPublishUtils {
+export interface ExternalGlobalUtils {
   ɵgetLoadedRoutes(route: any): any;
+  ɵnavigateByUrl(router: any, url: string): any;
+  ɵgetRouterInstance(injector: any): any;
 }
 
 const globalUtilsFunctions = {
@@ -69,6 +78,7 @@ const globalUtilsFunctions = {
   'ɵsetProfiler': setProfiler,
   'ɵgetSignalGraph': getSignalGraph,
   'ɵgetDeferBlocks': getDeferBlocks,
+  'ɵgetTransferState': getTransferState,
 
   'getDirectiveMetadata': getDirectiveMetadata,
   'getComponent': getComponent,
@@ -81,9 +91,10 @@ const globalUtilsFunctions = {
   'getDirectives': getDirectives,
   'applyChanges': applyChanges,
   'isSignal': isSignal,
+
+  'enableProfiling': enableProfiling,
 };
 type CoreGlobalUtilsFunctions = keyof typeof globalUtilsFunctions;
-type ExternalGlobalUtilsFunctions = keyof NgGlobalPublishUtils;
 
 let _published = false;
 /**
@@ -126,12 +137,27 @@ export function publishGlobalUtil<K extends CoreGlobalUtilsFunctions>(
 }
 
 /**
+ * Defines the framework-agnostic `ng` global type, not just the `@angular/core` implementation.
+ *
+ * `typeof globalUtilsFunctions` is specifically the `@angular/core` implementation, so we
+ * overwrite some properties to make them more framework-agnostic. Longer term, we should define
+ * the `ng` global type as an interface implemented by `globalUtilsFunctions` rather than a type
+ * derived from it.
+ */
+export type FrameworkAgnosticGlobalUtils = Omit<
+  typeof globalUtilsFunctions,
+  'getDirectiveMetadata'
+> & {
+  getDirectiveMetadata(directiveOrComponentInstance: any): DirectiveDebugMetadata | null;
+} & ExternalGlobalUtils;
+
+/**
  * Publishes the given function to `window.ng` from package other than @angular/core
  * So that it can be used from the browser console when an application is not in production.
  */
-export function publishExternalGlobalUtil<K extends ExternalGlobalUtilsFunctions>(
+export function publishExternalGlobalUtil<K extends keyof ExternalGlobalUtils>(
   name: K,
-  fn: NgGlobalPublishUtils[K],
+  fn: ExternalGlobalUtils[K],
 ): void {
   publishUtil(name, fn);
 }

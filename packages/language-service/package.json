@@ -7,12 +7,15 @@
   "author": "angular",
   "license": "MIT",
   "engines": {
-    "node": "^18.19.1 || ^20.11.1 || >=22.0.0"
+    "node": "^22.22.0 || >=24.13.1"
   },
   "exports": {
     ".": {
       "types": "./index.d.ts",
       "default": "./index.js"
+    },
+    "./bundles/language-service.js": {
+      "default": "./bundles/language-service.js"
     },
     "./package.json": {
       "default": "./package.json"

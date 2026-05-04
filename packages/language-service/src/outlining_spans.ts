@@ -15,6 +15,7 @@ import {
   TmplAstIfBlock,
   TmplAstNode,
   TmplAstRecursiveVisitor,
+  TmplAstSwitchBlockCase,
   tmplAstVisitAll,
 } from '@angular/compiler';
 import {NgCompiler} from '@angular/compiler-cli/src/ngtsc/core';
@@ -34,8 +35,12 @@ export function getOutliningSpans(compiler: NgCompiler, fileName: string): ts.Ou
     const templatesInFile: Array<TmplAstNode[]> = [];
     for (const stmt of sf.statements) {
       if (isNamedClassDeclaration(stmt)) {
-        const resources = compiler.getComponentResources(stmt);
-        if (resources === null || isExternalResource(resources.template)) {
+        const resources = compiler.getDirectiveResources(stmt);
+        if (
+          resources === null ||
+          resources.template === null ||
+          isExternalResource(resources.template)
+        ) {
           continue;
         }
         const template = compiler.getTemplateTypeChecker().getTemplate(stmt);
@@ -47,12 +52,8 @@ export function getOutliningSpans(compiler: NgCompiler, fileName: string): ts.Ou
     }
     return templatesInFile.map((template) => BlockVisitor.getBlockSpans(template)).flat();
   } else {
-    const templateInfo = getFirstComponentForTemplateFile(fileName, compiler);
-    if (templateInfo === undefined) {
-      return [];
-    }
-    const {template} = templateInfo;
-    return BlockVisitor.getBlockSpans(template);
+    const typeCheckInfo = getFirstComponentForTemplateFile(fileName, compiler);
+    return typeCheckInfo === undefined ? [] : BlockVisitor.getBlockSpans(typeCheckInfo.nodes);
   }
 }
 
@@ -89,9 +90,12 @@ class BlockVisitor extends TmplAstRecursiveVisitor {
     if (
       node instanceof TmplAstBlockNode &&
       // Omit `IfBlock` because we include the branches individually
-      !(node instanceof TmplAstIfBlock)
+      !(node instanceof TmplAstIfBlock) &&
+      // Omit `SwitchBlockCase` because we include the groups
+      !(node instanceof TmplAstSwitchBlockCase)
     ) {
       this.blocks.push(node);
     }
+    node.visit(this);
   }
 }

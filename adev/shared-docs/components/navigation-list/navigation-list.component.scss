@@ -24,13 +24,13 @@
   }
 
   &::-webkit-scrollbar-thumb {
+    border-radius: 10px;
+    transition: background-color 0.3s ease;
     background-color: var(--septenary-contrast);
+
     @include mq.for-tablet-landscape-down {
       background-color: var(--quinary-contrast);
     }
-
-    border-radius: 10px;
-    transition: background-color 0.3s ease;
   }
 
   &::-webkit-scrollbar-thumb:hover {
@@ -45,12 +45,45 @@
     border: 0;
   }
 
+  .docs-faceted-list-item-text {
+    max-width: calc(100% - 1rem);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    text-wrap: balance;
+  }
+
   .docs-nav-item-has-icon {
     &::after {
       // FIXME: for some reason this disappears when transformed
       content: 'chevron_right';
       font-size: 1.25rem;
       font-family: var(--icons);
+    }
+  }
+
+  .tag {
+    --label-theme: var(--symbolic-purple);
+    color: var(--label-theme);
+    background: color-mix(in srgb, var(--label-theme) 10%, white);
+    margin-inline-start: 0.5rem;
+    border-radius: 0.25rem;
+    font-size: 0.7rem;
+    padding: 0.25rem 0.5rem;
+
+    .docs-dark-mode & {
+      background: color-mix(in srgb, var(--label-theme) 17%, #272727);
+    }
+
+    .docs-light-mode & {
+      background: color-mix(in srgb, var(--label-theme) 10%, white);
+    }
+
+    &.docs-new-item {
+      --label-theme: var(--symbolic-green);
+    }
+
+    &.docs-updated-item {
+      --label-theme: var(--symbolic-blue);
     }
   }
 }
@@ -143,4 +176,25 @@ a,
     transition: color 0.3s ease;
     margin-inline-end: 0.4rem;
   }
+}
+
+::ng-deep .API-tooltip {
+  .mat-mdc-tooltip-surface {
+    max-width: unset;
+    width: auto;
+    word-break: keep-all;
+    white-space: pre;
+  }
+}
+
+.docs-navigation-group {
+  padding: 0.5rem 0.5rem 0.5rem 1rem;
+  background: var(--septenary-contrast);
+  &:not(:first-child) {
+    margin-top: 2rem;
+  }
+}
+
+.single-entry:not(:first-child) {
+  margin-top: 2rem;
 }

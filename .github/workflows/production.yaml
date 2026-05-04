@@ -1,48 +1,67 @@
 name: Netlify Production Deployment
+
 on:
   push:
     branches:
       - main
-      - master
+
 env:
   NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_API_TOKEN }}
   NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}
+
 jobs:
-  Deploy-Production-Shared:
+  Deploy-Production:
     runs-on: ubuntu-latest
     environment: Production
+
     steps:
       - uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          run_install: false
 
       - name: Use Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20.x'
-          cache: 'yarn'
+          node-version-file: '.nvmrc'
+          cache: 'pnpm'
 
-      - name: Install Netlify CLI
-        run: yarn global add netlify-cli@17.23
+      - name: Setup Bazel
+        uses: bazel-contrib/setup-bazel@0.18.0
+        with:
+          bazelisk-cache: true
+          repository-cache: true
+          disk-cache: ${{ github.workflow }}
 
-      - name: Link Netlify project
-        run: netlify link
+      - name: Install Dependencies
+        run: pnpm install --frozen-lockfile
 
       - name: Set environment variables from secrets and create .env file
         run: |
           echo "${{ vars.ENV_FILE }}" > .env
 
-      - name: Install Dependencies
-        run: yarn install --frozen-lockfile
+      - name: Build adev
+        run: pnpm exec bazel build //adev:build --jobs=2 --local_ram_resources=5120
 
-      - name: Build Project Artifacts
-        run: yarn docs:build
+      - name: Prepare deploy directory
+        run: |
+          mkdir -p /tmp/netlify-deploy
+          cp -RL ./dist/bin/adev/dist/browser /tmp/netlify-deploy/browser
+          chmod -R u+w /tmp/netlify-deploy/browser
+          mv /tmp/netlify-deploy/browser/index.csr.html /tmp/netlify-deploy/browser/index.html
+          cp ./_redirects /tmp/netlify-deploy/browser/_redirects
 
-      - name: Rename index.csr.html
-        run: sudo mv ./dist/bin/adev/build/browser/index.csr.html ./dist/bin/adev/build/browser/index.html
+      - name: Install Netlify CLI
+        run: pnpm add -g netlify-cli@17.23
 
       - name: Deploy Project Artifacts to Netlify
+        working-directory: /tmp/netlify-deploy
         run: |
           netlify deploy \
-            --dir ./dist/bin/adev/build/browser \
+            --site $NETLIFY_SITE_ID \
+            --dir ./browser \
             --skip-functions-cache \
             --prod \
-            --message "Action-${{env.BRANCH_NAME}}-${{github.event.head_commit.message}}"
+            --message "Action-${{ github.ref_name }}-${{ github.event.head_commit.message }}"

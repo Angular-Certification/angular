@@ -8,49 +8,102 @@
 
 import {
   assertInInjectionContext,
-  ResourceOptions,
   resource,
   ResourceLoaderParams,
   ResourceRef,
-} from '@angular/core';
-import {Observable, Subject} from 'rxjs';
-import {take, takeUntil} from 'rxjs/operators';
+  Signal,
+  signal,
+  BaseResourceOptions,
+  ɵRuntimeError,
+  ɵRuntimeErrorCode,
+  ResourceStreamItem,
+} from '../../src/core';
+import {Observable, Subscription} from 'rxjs';
+import {encapsulateResourceError} from '../../src/resource/resource';
 
 /**
  * Like `ResourceOptions` but uses an RxJS-based `loader`.
  *
  * @experimental
  */
-export interface RxResourceOptions<T, R> extends Omit<ResourceOptions<T, R>, 'loader'> {
-  loader: (params: ResourceLoaderParams<R>) => Observable<T>;
+export interface RxResourceOptions<T, R> extends BaseResourceOptions<T, R> {
+  stream: (params: ResourceLoaderParams<R>) => Observable<T>;
 }
 
 /**
  * Like `resource` but uses an RxJS based `loader` which maps the request to an `Observable` of the
- * resource's value. Like `firstValueFrom`, only the first emission of the Observable is considered.
+ * resource's value.
+ *
+ * @see [Using rxResource for async data](ecosystem/rxjs-interop#using-rxresource-for-async-data)
  *
  * @experimental
  */
-export function rxResource<T, R>(opts: RxResourceOptions<T, R>): ResourceRef<T> {
-  opts?.injector || assertInInjectionContext(rxResource);
+export function rxResource<T, R>(
+  opts: RxResourceOptions<T, R> & {defaultValue: NoInfer<T>},
+): ResourceRef<T>;
+
+/**
+ * Like `resource` but uses an RxJS based `loader` which maps the request to an `Observable` of the
+ * resource's value.
+ *
+ * @experimental
+ */
+export function rxResource<T, R>(opts: RxResourceOptions<T, R>): ResourceRef<T | undefined>;
+export function rxResource<T, R>(opts: RxResourceOptions<T, R>): ResourceRef<T | undefined> {
+  if (ngDevMode && !opts?.injector) {
+    assertInInjectionContext(rxResource);
+  }
   return resource<T, R>({
     ...opts,
-    loader: (params) => {
-      const cancelled = new Subject<void>();
-      params.abortSignal.addEventListener('abort', () => cancelled.next());
+    loader: undefined,
+    stream: (params) => {
+      let sub: Subscription | undefined;
 
-      // Note: this is identical to `firstValueFrom` which we can't use,
-      // because at the time of writing, `core` still supports rxjs 6.x.
-      return new Promise<T>((resolve, reject) => {
-        opts
-          .loader(params)
-          .pipe(take(1), takeUntil(cancelled))
-          .subscribe({
-            next: resolve,
-            error: reject,
-            complete: () => reject(new Error('Resource completed before producing a value')),
-          });
+      // Track the abort listener so it can be removed if the Observable completes (as a memory
+      // optimization).
+      const onAbort = () => sub?.unsubscribe();
+      params.abortSignal.addEventListener('abort', onAbort);
+
+      // Start off stream as undefined.
+      const stream = signal<ResourceStreamItem<T>>({value: undefined as T});
+      let resolve: ((value: Signal<ResourceStreamItem<T>>) => void) | undefined;
+      const promise = new Promise<Signal<ResourceStreamItem<T>>>((r) => (resolve = r));
+
+      function send(value: ResourceStreamItem<T>): void {
+        stream.set(value);
+        resolve?.(stream);
+        resolve = undefined;
+      }
+
+      // TODO(alxhub): remove after g3 updated to rename loader -> stream
+      const streamFn = opts.stream ?? (opts as {loader?: RxResourceOptions<T, R>['stream']}).loader;
+      if (streamFn === undefined) {
+        throw new ɵRuntimeError(
+          ɵRuntimeErrorCode.MUST_PROVIDE_STREAM_OPTION,
+          ngDevMode && `Must provide \`stream\` option.`,
+        );
+      }
+
+      sub = streamFn(params).subscribe({
+        next: (value) => send({value}),
+        error: (error: unknown) => {
+          send({error: encapsulateResourceError(error)});
+          params.abortSignal.removeEventListener('abort', onAbort);
+        },
+        complete: () => {
+          if (resolve) {
+            send({
+              error: new ɵRuntimeError(
+                ɵRuntimeErrorCode.RESOURCE_COMPLETED_BEFORE_PRODUCING_VALUE,
+                ngDevMode && 'Resource completed before producing a value',
+              ),
+            });
+          }
+          params.abortSignal.removeEventListener('abort', onAbort);
+        },
       });
+
+      return promise;
     },
   });
 }

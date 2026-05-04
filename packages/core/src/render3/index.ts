@@ -5,15 +5,14 @@
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file at https://angular.dev/license
  */
-import {LifecycleHooksFeature} from './component_ref';
 import {ɵɵdefineComponent, ɵɵdefineDirective, ɵɵdefineNgModule, ɵɵdefinePipe} from './definition';
-import {ɵɵCopyDefinitionFeature} from './features/copy_definition_feature';
+import {ɵɵControlFeature} from './features/control_feature';
 import {ɵɵHostDirectivesFeature} from './features/host_directives_feature';
 import {ɵɵInheritDefinitionFeature} from './features/inherit_definition_feature';
-import {ɵɵInputTransformsFeature} from './features/input_transforms_feature';
 import {ɵɵNgOnChangesFeature} from './features/ng_onchanges_feature';
 import {ɵɵProvidersFeature} from './features/providers_feature';
 import {ɵɵExternalStylesFeature} from './features/external_styles_feature';
+import {ControlDirectiveHost} from './interfaces/control';
 import {
   ComponentDef,
   ComponentTemplate,
@@ -32,7 +31,14 @@ import {
 } from './interfaces/public_definitions';
 import {ɵɵsetComponentScope, ɵɵsetNgModuleScope} from './scope';
 import {
-  ComponentDebugMetadata,
+  BaseDirectiveDebugMetadata,
+  AngularDirectiveDebugMetadata,
+  AngularComponentDebugMetadata,
+  AcxChangeDetectionStrategy,
+  AcxViewEncapsulation,
+  AcxDirectiveDebugMetadata,
+  AcxComponentDebugMetadata,
+  WizComponentDebugMetadata,
   DirectiveDebugMetadata,
   getComponent,
   getDirectiveMetadata,
@@ -46,31 +52,31 @@ export {ComponentFactory, ComponentFactoryResolver, ComponentRef} from './compon
 export {ɵɵgetInheritedFactory} from './di';
 export {getLocaleId, setLocaleId} from './i18n/i18n_locale_id';
 export {
-  store,
   ɵɵadvance,
+  ɵɵariaProperty,
   ɵɵattribute,
-  ɵɵattributeInterpolate1,
-  ɵɵattributeInterpolate2,
-  ɵɵattributeInterpolate3,
-  ɵɵattributeInterpolate4,
-  ɵɵattributeInterpolate5,
-  ɵɵattributeInterpolate6,
-  ɵɵattributeInterpolate7,
-  ɵɵattributeInterpolate8,
-  ɵɵattributeInterpolateV,
+  ɵɵinterpolate,
+  ɵɵinterpolate1,
+  ɵɵinterpolate2,
+  ɵɵinterpolate3,
+  ɵɵinterpolate4,
+  ɵɵinterpolate5,
+  ɵɵinterpolate6,
+  ɵɵinterpolate7,
+  ɵɵinterpolate8,
+  ɵɵinterpolateV,
   ɵɵclassMap,
-  ɵɵclassMapInterpolate1,
-  ɵɵclassMapInterpolate2,
-  ɵɵclassMapInterpolate3,
-  ɵɵclassMapInterpolate4,
-  ɵɵclassMapInterpolate5,
-  ɵɵclassMapInterpolate6,
-  ɵɵclassMapInterpolate7,
-  ɵɵclassMapInterpolate8,
-  ɵɵclassMapInterpolateV,
   ɵɵclassProp,
   ɵɵcomponentInstance,
   ɵɵdirectiveInject,
+  ɵɵdomElement,
+  ɵɵdomElementStart,
+  ɵɵdomElementEnd,
+  ɵɵdomElementContainer,
+  ɵɵdomElementContainerStart,
+  ɵɵdomElementContainerEnd,
+  ɵɵdomTemplate,
+  ɵɵdomListener,
   ɵɵelement,
   ɵɵelementContainer,
   ɵɵelementContainerEnd,
@@ -78,7 +84,7 @@ export {
   ɵɵelementEnd,
   ɵɵelementStart,
   ɵɵgetCurrentView,
-  ɵɵhostProperty,
+  ɵɵdomProperty,
   ɵɵinjectAttribute,
   ɵɵinvalidFactory,
   ɵɵlistener,
@@ -89,16 +95,8 @@ export {
   ɵɵprojection,
   ɵɵprojectionDef,
   ɵɵproperty,
-  ɵɵpropertyInterpolate,
-  ɵɵpropertyInterpolate1,
-  ɵɵpropertyInterpolate2,
-  ɵɵpropertyInterpolate3,
-  ɵɵpropertyInterpolate4,
-  ɵɵpropertyInterpolate5,
-  ɵɵpropertyInterpolate6,
-  ɵɵpropertyInterpolate7,
-  ɵɵpropertyInterpolate8,
-  ɵɵpropertyInterpolateV,
+  ɵɵcontrol,
+  ɵɵcontrolCreate,
   ɵɵcontentQuery,
   ɵɵcontentQuerySignal,
   ɵɵloadQuery,
@@ -112,29 +110,13 @@ export {
   ɵɵrepeaterTrackByIdentity,
   ɵɵrepeaterTrackByIndex,
   ɵɵstyleMap,
-  ɵɵstyleMapInterpolate1,
-  ɵɵstyleMapInterpolate2,
-  ɵɵstyleMapInterpolate3,
-  ɵɵstyleMapInterpolate4,
-  ɵɵstyleMapInterpolate5,
-  ɵɵstyleMapInterpolate6,
-  ɵɵstyleMapInterpolate7,
-  ɵɵstyleMapInterpolate8,
-  ɵɵstyleMapInterpolateV,
   ɵɵstyleProp,
-  ɵɵstylePropInterpolate1,
-  ɵɵstylePropInterpolate2,
-  ɵɵstylePropInterpolate3,
-  ɵɵstylePropInterpolate4,
-  ɵɵstylePropInterpolate5,
-  ɵɵstylePropInterpolate6,
-  ɵɵstylePropInterpolate7,
-  ɵɵstylePropInterpolate8,
-  ɵɵstylePropInterpolateV,
   ɵɵsyntheticHostListener,
   ɵɵsyntheticHostProperty,
   ɵɵtemplate,
   ɵɵconditional,
+  ɵɵconditionalCreate,
+  ɵɵconditionalBranchCreate,
   ɵɵdefer,
   ɵɵdeferWhen,
   ɵɵdeferOnIdle,
@@ -180,6 +162,11 @@ export {
   ɵɵstoreLet,
   ɵɵreadContextLet,
   ɵɵattachSourceLocations,
+  ɵɵanimateEnter,
+  ɵɵanimateEnterListener,
+  ɵɵanimateLeave,
+  ɵɵanimateLeaveListener,
+  ɵɵarrowFunction,
 } from './instructions/all';
 export {
   ɵɵdeferEnableTimerScheduling,
@@ -220,13 +207,23 @@ export {ɵɵresolveBody, ɵɵresolveDocument, ɵɵresolveWindow} from './util/mi
 export {ɵɵtemplateRefExtractor} from './view_engine_compatibility_prebound';
 export {ɵɵgetComponentDepsFactory} from './local_compilation';
 export {ɵsetClassDebugInfo} from './debug/set_debug_info';
-export {ɵɵreplaceMetadata} from './hmr';
+export {ɵɵreplaceMetadata, ɵɵgetReplaceMetadataURL} from './hmr';
+
+export {store} from './util/view_utils';
 
 export {
-  ComponentDebugMetadata,
   ComponentDef,
   ComponentTemplate,
   ComponentType,
+  BaseDirectiveDebugMetadata,
+  AngularDirectiveDebugMetadata,
+  AngularComponentDebugMetadata,
+  AcxChangeDetectionStrategy,
+  AcxViewEncapsulation,
+  AcxDirectiveDebugMetadata,
+  AcxComponentDebugMetadata,
+  WizComponentDebugMetadata,
+  ControlDirectiveHost,
   DirectiveDebugMetadata,
   DirectiveDef,
   DirectiveType,
@@ -235,20 +232,18 @@ export {
   getDirectives,
   getHostElement,
   getRenderedText,
-  LifecycleHooksFeature,
   PipeDef,
   ɵɵComponentDeclaration,
-  ɵɵCopyDefinitionFeature,
   ɵɵdefineComponent,
   ɵɵdefineDirective,
   ɵɵdefineNgModule,
   ɵɵdefinePipe,
   ɵɵDirectiveDeclaration,
   ɵɵFactoryDeclaration,
+  ɵɵControlFeature,
   ɵɵHostDirectivesFeature,
   ɵɵInheritDefinitionFeature,
   ɵɵInjectorDeclaration,
-  ɵɵInputTransformsFeature,
   ɵɵNgModuleDeclaration,
   ɵɵNgOnChangesFeature,
   ɵɵPipeDeclaration,

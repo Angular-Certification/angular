@@ -27,7 +27,7 @@ import {
 import {fakeAsync, tick, waitForAsync} from '@angular/core/testing';
 import {BrowserModule} from '@angular/platform-browser';
 import {platformBrowserDynamic} from '@angular/platform-browser-dynamic';
-import {downgradeComponent, UpgradeComponent, UpgradeModule} from '@angular/upgrade/static';
+import {downgradeComponent, UpgradeComponent, UpgradeModule} from '../../../static';
 
 import * as angular from '../../../src/common/src/angular1';
 import {$ROOT_SCOPE} from '../../../src/common/src/constants';
@@ -1069,7 +1069,7 @@ withEachNg1Version(() => {
     afterEach(() => destroyPlatform());
 
     it('should downgrade a standalone component using NgModule APIs', waitForAsync(() => {
-      @Component({selector: 'ng2', standalone: true, template: 'Hi from Angular!'})
+      @Component({selector: 'ng2', template: 'Hi from Angular!'})
       class Ng2Component {}
 
       const ng1Module = angular

@@ -8,10 +8,22 @@
 
 import {
   AbsoluteSourceSpan,
+  AST,
   BoundTarget,
   DirectiveMeta,
+  DirectiveOwner,
+  LegacyAnimationTriggerNames,
   ParseSourceSpan,
   SchemaMetadata,
+  TemplateEntity,
+  TmplAstBoundAttribute,
+  TmplAstBoundEvent,
+  TmplAstComponent,
+  TmplAstDirective,
+  TmplAstElement,
+  TmplAstReference,
+  TmplAstTemplate,
+  TmplAstTextAttribute,
 } from '@angular/compiler';
 import ts from 'typescript';
 
@@ -19,12 +31,101 @@ import {ErrorCode} from '../../diagnostics';
 import {Reference} from '../../imports';
 import {
   ClassPropertyMapping,
+  ClassPropertyName,
   DirectiveTypeCheckMeta,
   HostDirectiveMeta,
   InputMapping,
+  InputOrOutput,
   PipeMeta,
+  TemplateGuardMeta,
 } from '../../metadata';
 import {ClassDeclaration} from '../../reflection';
+
+export interface TcbReferenceMetadata {
+  /** The name of the class */
+  name: string;
+  /** The module path where the symbol is located, or null if local/ambient */
+  moduleName: string | null;
+  /** True if the symbol successfully emitted locally (no external import required) */
+  isLocal: boolean;
+  /** If the reference could not be externally emitted, this string holds the diagnostic reason why */
+  unexportedDiagnostic: string | null;
+  /**
+   * Defines the `AbsoluteSourceSpan` of the target's node name, if available.
+   */
+  nodeNameSpan?: AbsoluteSourceSpan;
+
+  /**
+   * The absolute path to the file containing the reference node, if available.
+   */
+  nodeFilePath?: string;
+}
+
+export type TcbReferenceKey = string & {__brand: 'TcbReferenceKey'};
+
+export interface TcbTypeParameter {
+  name: string;
+  representation: string;
+  representationWithDefault: string;
+}
+
+export type TcbInputMapping = InputOrOutput & {
+  required: boolean;
+
+  /**
+   * AST-free string representation of the transform type of the input, if available.
+   */
+  transformType?: string;
+};
+
+export interface TcbPipeMetadata {
+  name: string;
+  ref: TcbReferenceMetadata;
+  isExplicitlyDeferred: boolean;
+}
+
+export interface TcbDirectiveMetadata {
+  ref: TcbReferenceMetadata;
+  name: string;
+  selector: string | null;
+  isComponent: boolean;
+  isGeneric: boolean;
+  isStructural: boolean;
+  isStandalone: boolean;
+  isExplicitlyDeferred: boolean;
+  preserveWhitespaces: boolean;
+  exportAs: string[] | null;
+
+  /** Type parameters of the directive, if available. */
+  typeParameters: TcbTypeParameter[] | null;
+  inputs: ClassPropertyMapping<TcbInputMapping>;
+  outputs: ClassPropertyMapping;
+  hasRequiresInlineTypeCtor: boolean;
+  ngTemplateGuards: TemplateGuardMeta[];
+  hasNgTemplateContextGuard: boolean;
+  hasNgFieldDirective: boolean;
+  coercedInputFields: Set<ClassPropertyName>;
+  restrictedInputFields: Set<ClassPropertyName>;
+  stringLiteralInputFields: Set<ClassPropertyName>;
+  undeclaredInputFields: Set<ClassPropertyName>;
+  publicMethods: Set<string>;
+  ngContentSelectors: string[] | null;
+  animationTriggerNames: LegacyAnimationTriggerNames | null;
+}
+
+export interface TcbComponentMetadata {
+  ref: TcbReferenceMetadata;
+  typeParameters: TcbTypeParameter[] | null;
+}
+
+export interface TcbTypeCheckBlockMetadata {
+  id: TypeCheckId;
+  boundTarget: BoundTarget<TcbDirectiveMetadata>;
+  pipes: Map<string, TcbPipeMetadata> | null;
+  schemas: SchemaMetadata[];
+  isStandalone: boolean;
+  preserveWhitespaces: boolean;
+}
 
 /**
  * Extension of `DirectiveMeta` that includes additional information required to type-check the
@@ -44,22 +145,22 @@ export interface TypeCheckableDirectiveMeta extends DirectiveMeta, DirectiveType
   rawImports: ts.Expression | null;
 }
 
-export type TemplateId = string & {__brand: 'TemplateId'};
+export type TypeCheckId = string & {__brand: 'TypeCheckId'};
 
 /**
  * A `ts.Diagnostic` with additional information about the diagnostic related to template
  * type-checking.
  */
-export interface TemplateDiagnostic extends ts.Diagnostic {
+export interface TemplateDiagnostic extends ts.DiagnosticWithLocation {
   /**
    * The component with the template that resulted in this diagnostic.
    */
-  componentFile: ts.SourceFile;
+  sourceFile: ts.SourceFile;
 
   /**
-   * The template id of the component that resulted in this diagnostic.
+   * The type check ID of the directive that resulted in this diagnostic.
    */
-  templateId: TemplateId;
+  typeCheckId: TypeCheckId;
 }
 
 /**
@@ -75,9 +176,9 @@ export interface TypeCheckBlockMetadata {
   /**
    * A unique identifier for the class which gave rise to this TCB.
    *
-   * This can be used to map errors back to the `ts.ClassDeclaration` for the component.
+   * This can be used to map errors back to the `ts.ClassDeclaration` for the directive.
    */
-  id: TemplateId;
+  id: TypeCheckId;
 
   /**
    * Semantic information about the template of the component.
@@ -87,7 +188,7 @@ export interface TypeCheckBlockMetadata {
   /*
    * Pipes used in the template of the component.
    */
-  pipes: Map<string, PipeMeta>;
+  pipes: Map<string, PipeMeta> | null;
 
   /**
    * Schemas that apply to this template.
@@ -119,7 +220,7 @@ export interface TypeCtorMetadata {
   /**
    * Input, output, and query field names in the type which should be included as constructor input.
    */
-  fields: {inputs: ClassPropertyMapping<InputMapping>; queries: string[]};
+  fields: {inputs: ClassPropertyMapping<TcbInputMapping>};
 
   /**
    * `Set` of field names which have type coercion enabled.
@@ -354,6 +455,11 @@ export interface TypeCheckingConfig {
   allowSignalsInTwoWayBindings: boolean;
 
   /**
+   * Whether the type of DOM events should be asserted with '@angular/core' 'ɵassertType' (see TCB implementation).
+   */
+  allowDomEventAssertion: boolean;
+
+  /**
    * Whether to descend into the bodies of control flow blocks (`@if`, `@switch` and `@for`).
    */
   checkControlFlowBodies: boolean;
@@ -364,31 +470,29 @@ export interface TypeCheckingConfig {
   checkTwoWayBoundEvents: boolean;
 }
 
-export type TemplateSourceMapping =
-  | DirectTemplateSourceMapping
-  | IndirectTemplateSourceMapping
+export type SourceMapping =
+  | DirectSourceMapping
+  | IndirectSourceMapping
   | ExternalTemplateSourceMapping;
 
 /**
- * A mapping to an inline template in a TS file.
+ * A mapping to a node within the same source file..
  *
- * `ParseSourceSpan`s for this template should be accurate for direct reporting in a TS error
- * message.
+ * `ParseSourceSpan`s for this node should be accurate for direct reporting in a TS error message.
  */
-export interface DirectTemplateSourceMapping {
+export interface DirectSourceMapping {
   type: 'direct';
-  node: ts.StringLiteral | ts.NoSubstitutionTemplateLiteral;
+  node: ts.Node;
 }
 
 /**
- * A mapping to a template which is still in a TS file, but where the node positions in any
+ * A mapping to a node which is still in a TS file, but where the positions in any
  * `ParseSourceSpan`s are not accurate for one reason or another.
  *
- * This can occur if the template expression was interpolated in a way where the compiler could not
- * construct a contiguous mapping for the template string. The `node` refers to the `template`
- * expression.
+ * This can occur if the expression was interpolated in a way where the compiler could not
+ * construct a contiguous mapping for the template string.
  */
-export interface IndirectTemplateSourceMapping {
+export interface IndirectSourceMapping {
   type: 'indirect';
   componentClass: ClassDeclaration;
   node: ts.Expression;
@@ -410,19 +514,23 @@ export interface ExternalTemplateSourceMapping {
 }
 
 /**
- * A mapping of a TCB template id to a span in the corresponding template source.
+ * A mapping of a TCB template id to a span in the corresponding source code.
  */
 export interface SourceLocation {
-  id: TemplateId;
+  id: TypeCheckId;
   span: AbsoluteSourceSpan;
 }
 
 /**
- * A representation of all a node's template mapping information we know. Useful for producing
+ * A representation of all a node's type checking information we know. Useful for producing
  * diagnostics based on a TCB node or generally mapping from a TCB node back to a template location.
  */
-export interface FullTemplateMapping {
+export interface FullSourceMapping {
   sourceLocation: SourceLocation;
-  templateSourceMapping: TemplateSourceMapping;
+  sourceMapping: SourceMapping;
   span: ParseSourceSpan;
+}
+
+export interface GetPotentialAngularMetaOptions {
+  includeExternalModule: boolean;
 }

@@ -14,8 +14,8 @@ import {
   NgModule,
   ViewChild,
   ViewContainerRef,
-} from '@angular/core';
-import {TestBed} from '@angular/core/testing';
+} from '../../src/core';
+import {TestBed} from '../../testing';
 
 describe('standalone injector', () => {
   it('should create one standalone injector for each parent EnvInjector', () => {
@@ -30,9 +30,8 @@ describe('standalone injector', () => {
 
     @Component({
       selector: 'standalone',
-      standalone: true,
       imports: [ModuleWithAService],
-      template: `({{service.value}})`,
+      template: `({{ service.value }})`,
     })
     class TestComponent {
       constructor(readonly service: Service) {}
@@ -81,9 +80,8 @@ describe('standalone injector', () => {
 
     @Component({
       selector: 'standalone',
-      standalone: true,
       imports: [ModuleWithAService],
-      template: `{{service.value}}`,
+      template: `{{ service.value }}`,
     })
     class DynamicComponent {
       constructor(readonly service: Service) {}

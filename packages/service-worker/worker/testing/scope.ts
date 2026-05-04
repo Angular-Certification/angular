@@ -192,7 +192,11 @@ export class SwTestHarnessImpl
     this.skippedWaiting = true;
   }
 
-  handleFetch(req: Request, clientId = ''): [Promise<Response | undefined>, Promise<void>] {
+  handleFetch(
+    req: Request,
+    clientId = '',
+    resultingClientId?: string,
+  ): [Promise<Response | undefined>, Promise<void>] {
     if (!this.eventHandlers.has('fetch')) {
       throw new Error('No fetch handler registered');
     }
@@ -203,9 +207,12 @@ export class SwTestHarnessImpl
       this.clients.add(clientId, isNavigation ? req.url : this.scopeUrl);
     }
 
-    const event = isNavigation
-      ? new MockFetchEvent(req, '', clientId)
-      : new MockFetchEvent(req, clientId, '');
+    const event =
+      clientId && resultingClientId
+        ? new MockFetchEvent(req, clientId, resultingClientId)
+        : isNavigation
+          ? new MockFetchEvent(req, '', clientId)
+          : new MockFetchEvent(req, clientId, '');
     this.eventHandlers.get('fetch')!.call(this, event);
 
     return [event.response, event.ready];
@@ -229,6 +236,24 @@ export class SwTestHarnessImpl
     return event.ready;
   }
 
+  handleMessageError(clientId: string | null) {
+    if (!this.eventHandlers.has('messageerror')) {
+      throw new Error('No messageerror handler registered');
+    }
+
+    if (clientId && !this.clients.getMock(clientId)) {
+      this.clients.add(clientId, this.scopeUrl);
+    }
+
+    const event = new MockExtendableMessageEvent(
+      null,
+      (clientId && this.clients.getMock(clientId)) || null,
+    );
+    this.eventHandlers.get('messageerror')!.call(this, event);
+
+    return event.ready;
+  }
+
   handlePush(data: Object): Promise<void> {
     if (!this.eventHandlers.has('push')) {
       throw new Error('No push handler registered');
@@ -245,6 +270,30 @@ export class SwTestHarnessImpl
     const event = new MockNotificationEvent(notification, action);
     this.eventHandlers.get('notificationclick')!.call(this, event);
     return event.ready;
+  }
+
+  handleClose(notification: Object, action: string): Promise<void> {
+    if (!this.eventHandlers.has('notificationclose')) {
+      throw new Error('No notificationclose handler registered');
+    }
+    const event = new MockNotificationEvent(notification, action);
+    this.eventHandlers.get('notificationclose')!.call(this, event);
+    return event.ready;
+  }
+
+  handleUnhandledRejection(reason: any): void {
+    if (!this.eventHandlers.has('unhandledrejection')) {
+      throw new Error('No unhandledrejection handler registered');
+    }
+    const promise = Promise.reject(reason);
+    // We want to simulate an unhandled rejection, but we don't want the test runner (Node)
+    // to actually see an unhandled rejection and fail the test. So we attach a dummy handler.
+    promise.catch(() => {});
+    const event = {
+      reason,
+      promise,
+    } as unknown as PromiseRejectionEvent;
+    this.eventHandlers.get('unhandledrejection')!.call(this, event);
   }
 
   override timeout(ms: number): Promise<void> {

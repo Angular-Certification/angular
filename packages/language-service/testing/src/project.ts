@@ -9,7 +9,7 @@
 import {
   InternalOptions,
   LegacyNgcOptions,
-  StrictTemplateOptions,
+  TypeCheckingOptions,
 } from '@angular/compiler-cli/src/ngtsc/core/api';
 import {
   absoluteFrom,
@@ -45,7 +45,7 @@ function writeTsconfig(
         compilerOptions: {
           strict: true,
           experimentalDecorators: true,
-          moduleResolution: 'node',
+          moduleResolution: 'bundler',
           target: 'es2015',
           rootDir: '.',
           lib: ['dom', 'es2015'],
@@ -63,9 +63,12 @@ function writeTsconfig(
   );
 }
 
-export type TestableOptions = StrictTemplateOptions &
+export type TestableOptions = TypeCheckingOptions &
   InternalOptions &
-  Pick<LegacyNgcOptions, 'fullTemplateTypeCheck'>;
+  Pick<LegacyNgcOptions, 'fullTemplateTypeCheck'> & {
+    // This already exists in `InternalOptions`, but it's `internal` so it's stripped away.
+    _enableSelectorless?: boolean;
+  };
 
 export class Project {
   private tsProject: ts.server.Project;
@@ -173,6 +176,13 @@ export class Project {
     return diagnostics;
   }
 
+  getSuggestionDiagnosticsForFile(projectFileName: string): ts.Diagnostic[] {
+    const fileName = absoluteFrom(`/${this.name}/${projectFileName}`);
+    const diagnostics: ts.Diagnostic[] = [];
+    diagnostics.push(...this.ngLS.getSuggestionDiagnostics(fileName));
+    return diagnostics;
+  }
+
   getCodeFixesAtPosition(
     projectFileName: string,
     start: number,
@@ -180,7 +190,16 @@ export class Project {
     errorCodes: readonly number[],
   ): readonly ts.CodeFixAction[] {
     const fileName = absoluteFrom(`/${this.name}/${projectFileName}`);
-    return this.ngLS.getCodeFixesAtPosition(fileName, start, end, errorCodes, {}, {});
+    return this.ngLS.getCodeFixesAtPosition(
+      fileName,
+      start,
+      end,
+      errorCodes,
+      {},
+      {
+        includeCompletionsForModuleExports: true,
+      },
+    );
   }
 
   getRefactoringsAtPosition(
@@ -269,6 +288,19 @@ export class Project {
 
   getLogger(): ts.server.Logger {
     return this.tsProject.projectService.logger;
+  }
+
+  getLinkedEditingRangeAtPosition(
+    projectFileName: string,
+    position: number,
+  ): {ranges: ts.TextSpan[]; wordPattern?: string} | null {
+    const fileName = absoluteFrom(`/${this.name}/${projectFileName}`);
+    return this.ngLS.getLinkedEditingRangeAtPosition(fileName, position) ?? null;
+  }
+
+  getSemanticDiagnostics(projectFileName: string): ts.Diagnostic[] {
+    const fileName = absoluteFrom(`/${this.name}/${projectFileName}`);
+    return [...this.ngLS.getSemanticDiagnostics(fileName)];
   }
 }
 

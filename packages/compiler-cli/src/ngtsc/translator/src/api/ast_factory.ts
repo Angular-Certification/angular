@@ -33,9 +33,10 @@ export interface AstFactory<TStatement, TExpression> {
    * Create an assignment expression (e.g. `lhsExpr = rhsExpr`).
    *
    * @param target an expression that evaluates to the left side of the assignment.
+   * @param operator binary assignment operator that will be applied.
    * @param value an expression that evaluates to the right side of the assignment.
    */
-  createAssignment(target: TExpression, value: TExpression): TExpression;
+  createAssignment(target: TExpression, operator: BinaryOperator, value: TExpression): TExpression;
 
   /**
    * Create a binary expression (e.g. `lhs && rhs`).
@@ -218,6 +219,18 @@ export interface AstFactory<TStatement, TExpression> {
   createTaggedTemplate(tag: TExpression, template: TemplateLiteral<TExpression>): TExpression;
 
   /**
+   * Create an untagged template literal
+   *
+   * ```
+   * `str1${expr1}str2${expr2}str3`
+   * ```
+   *
+   * @param template the collection of strings and expressions that constitute an interpolated
+   *     template literal.
+   */
+  createTemplateLiteral(template: TemplateLiteral<TExpression>): TExpression;
+
+  /**
    * Create a throw statement (e.g. `throw expr;`).
    *
    * @param expression the expression to be thrown.
@@ -230,6 +243,13 @@ export interface AstFactory<TStatement, TExpression> {
    * @param expression the expression whose type we want.
    */
   createTypeOfExpression(expression: TExpression): TExpression;
+
+  /**
+   * Create an expression that evaluates an expression and returns `undefined`.
+   *
+   * @param expression the expression whose type we want.
+   */
+  createVoidExpression(expression: TExpression): TExpression;
 
   /**
    * Prefix the `operand` with the given `operator` (e.g. `-expr`).
@@ -251,6 +271,21 @@ export interface AstFactory<TStatement, TExpression> {
     initializer: TExpression | null,
     type: VariableDeclarationType,
   ): TStatement;
+
+  /**
+   * Create a regular expression literal (e.g. `/\d+/g`).
+   *
+   * @param body Body of the regex.
+   * @param flags Flags of the regex, if any.
+   */
+  createRegularExpressionLiteral(body: string, flags: string | null): TExpression;
+
+  /**
+   * Create a spread element, typically in an array or function call. E.g. `[...a]` or `fn(...b)`.
+   *
+   * @param target Expression of the spread element.
+   */
+  createSpreadElement(expression: TExpression): TExpression;
 
   /**
    * Attach a source map range to the given node.
@@ -292,11 +327,24 @@ export type BinaryOperator =
   | '-'
   | '%'
   | '*'
+  | '**'
   | '!='
   | '!=='
   | '||'
   | '+'
-  | '??';
+  | '??'
+  | '='
+  | '+='
+  | '-='
+  | '*='
+  | '/='
+  | '%='
+  | '**='
+  | '&&='
+  | '||='
+  | '??='
+  | 'in'
+  | 'instanceof';
 
 /**
  * The original location of the start or end of a node created by the `AstFactory`.
@@ -321,9 +369,11 @@ export interface SourceMapRange {
 }
 
 /**
- * Information used by the `AstFactory` to create a property on an object literal expression.
+ * Information used by the `AstFactory` to create a property assignment
+ * on an object literal expression.
  */
-export interface ObjectLiteralProperty<TExpression> {
+export interface ObjectLiteralAssignment<TExpression> {
+  kind: 'property';
   propertyName: string;
   value: TExpression;
   /**
@@ -331,6 +381,19 @@ export interface ObjectLiteralProperty<TExpression> {
    */
   quoted: boolean;
 }
+
+/**
+ * Information used by the `AstFactory` to create a spread on an object literal expression.
+ */
+export interface ObjectLiteralSpread<TExpression> {
+  kind: 'spread';
+  expression: TExpression;
+}
+
+/** Possible properties in an object literal. */
+export type ObjectLiteralProperty<TExpression> =
+  | ObjectLiteralAssignment<TExpression>
+  | ObjectLiteralSpread<TExpression>;
 
 /**
  * Information used by the `AstFactory` to create a template literal string (i.e. a back-ticked

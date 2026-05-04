@@ -7,15 +7,21 @@
  */
 
 import {
+  afterEveryRender,
   Component,
+  provideZoneChangeDetection,
+  ɵTracingAction as TracingAction,
   ɵTracingService as TracingService,
   ɵTracingSnapshot as TracingSnapshot,
-  ɵTracingAction as TracingAction,
-  afterRender,
-} from '@angular/core';
-import {fakeAsync, TestBed} from '@angular/core/testing';
+} from '../../src/core';
+import {fakeAsync, TestBed} from '../../testing';
 
 describe('TracingService', () => {
+  beforeEach(() => {
+    TestBed.configureTestingModule({
+      providers: [provideZoneChangeDetection()],
+    });
+  });
   let actions: TracingAction[];
   let listeners: {event: string; handler: Function}[];
   let fakeSnapshot: TracingSnapshot;
@@ -81,13 +87,19 @@ describe('TracingService', () => {
     @Component({template: ''})
     class App {
       constructor() {
-        afterRender(() => {});
+        afterEveryRender(() => {});
       }
     }
 
-    TestBed.createComponent(App);
-    expect(mockTracingService.snapshot).toHaveBeenCalledTimes(2);
-    expect(actions).toEqual([TracingAction.CHANGE_DETECTION, TracingAction.AFTER_NEXT_RENDER]);
+    const fixture = TestBed.createComponent(App);
+    fixture.changeDetectorRef.markForCheck();
+    fixture.detectChanges();
+    expect(mockTracingService.snapshot).toHaveBeenCalledTimes(4);
+    expect(actions).toEqual([
+      TracingAction.CHANGE_DETECTION,
+      TracingAction.CHANGE_DETECTION,
+      TracingAction.AFTER_NEXT_RENDER,
+    ]);
   }));
 
   it('should be able to wrap event listeners through the tracing service', fakeAsync(() => {

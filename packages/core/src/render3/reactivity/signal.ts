@@ -6,24 +6,17 @@
  * found in the LICENSE file at https://angular.dev/license
  */
 
-import {
-  createSignal,
-  SIGNAL,
-  SignalGetter,
-  SignalNode,
-  signalSetFn,
-  signalUpdateFn,
-} from '@angular/core/primitives/signals';
+import {createSignal, SIGNAL, SignalGetter, SignalNode} from '../../../primitives/signals';
 
-import {performanceMarkFeature} from '../../util/performance';
-
-import {isSignal, Signal, ValueEqualityFn} from './api';
+import {Signal, ValueEqualityFn} from './api';
 
 /** Symbol used distinguish `WritableSignal` from other non-writable signals and functions. */
-export const ɵWRITABLE_SIGNAL = /* @__PURE__ */ Symbol('WRITABLE_SIGNAL');
+export const ɵWRITABLE_SIGNAL: unique symbol = /* @__PURE__ */ Symbol('WRITABLE_SIGNAL');
 
 /**
  * A `Signal` with a value that can be mutated via a setter interface.
+ *
+ * @publicApi 17.0
  */
 export interface WritableSignal<T> extends Signal<T> {
   [ɵWRITABLE_SIGNAL]: T;
@@ -74,17 +67,16 @@ export interface CreateSignalOptions<T> {
 
 /**
  * Create a `Signal` that can be set or updated directly.
+ * @see [Angular Signals](guide/signals)
  */
 export function signal<T>(initialValue: T, options?: CreateSignalOptions<T>): WritableSignal<T> {
-  performanceMarkFeature('NgSignals');
-  const signalFn = createSignal(initialValue) as SignalGetter<T> & WritableSignal<T>;
-  const node = signalFn[SIGNAL];
-  if (options?.equal) {
-    node.equal = options.equal;
-  }
+  const [get, set, update] = createSignal(initialValue, options?.equal);
 
-  signalFn.set = (newValue: T) => signalSetFn(node, newValue);
-  signalFn.update = (updateFn: (value: T) => T) => signalUpdateFn(node, updateFn);
+  const signalFn = get as SignalGetter<T> & WritableSignal<T>;
+  const node = signalFn[SIGNAL];
+
+  signalFn.set = set;
+  signalFn.update = update;
   signalFn.asReadonly = signalAsReadonlyFn.bind(signalFn as any) as () => Signal<T>;
 
   if (ngDevMode) {
@@ -103,11 +95,4 @@ export function signalAsReadonlyFn<T>(this: SignalGetter<T>): Signal<T> {
     node.readonlyFn = readonlyFn as Signal<T>;
   }
   return node.readonlyFn;
-}
-
-/**
- * Checks if the given `value` is a writeable signal.
- */
-export function isWritableSignal(value: unknown): value is WritableSignal<unknown> {
-  return isSignal(value) && typeof (value as any).set === 'function';
 }

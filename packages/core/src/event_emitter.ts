@@ -6,14 +6,14 @@
  * found in the LICENSE file at https://angular.dev/license
  */
 
-import {setActiveConsumer} from '@angular/core/primitives/signals';
+import {setActiveConsumer} from '../primitives/signals';
 import {PartialObserver, Subject, Subscription} from 'rxjs';
 
 import {OutputRef} from './authoring/output/output_ref';
 import {isInInjectionContext} from './di/contextual';
 import {inject} from './di/injector_compatibility';
 import {DestroyRef} from './linker/destroy_ref';
-import {PendingTasksInternal} from './pending_tasks';
+import {PendingTasksInternal} from './pending_tasks_internal';
 
 /**
  * Use in components with the `@Output` directive to emit custom events
@@ -63,6 +63,8 @@ import {PendingTasksInternal} from './pending_tasks';
  * <zippy (open)="onOpen($event)" (close)="onClose($event)"></zippy>
  * ```
  *
+ * @see [Declaring outputs with the @Output decorator](guide/components/outputs#declaring-outputs-with-the-output-decorator)
+ *
  * @publicApi
  */
 export interface EventEmitter<T> extends Subject<T>, OutputRef<T> {
@@ -110,7 +112,8 @@ export interface EventEmitter<T> extends Subject<T>, OutputRef<T> {
 }
 
 class EventEmitter_ extends Subject<any> implements OutputRef<any> {
-  __isAsync: boolean; // tslint:disable-line
+  // tslint:disable-next-line:require-internal-with-underscore
+  __isAsync: boolean;
   destroyRef: DestroyRef | undefined = undefined;
   private readonly pendingTasks: PendingTasksInternal | undefined = undefined;
 
@@ -175,9 +178,12 @@ class EventEmitter_ extends Subject<any> implements OutputRef<any> {
     return (value: unknown) => {
       const taskId = this.pendingTasks?.add();
       setTimeout(() => {
-        fn(value);
-        if (taskId !== undefined) {
-          this.pendingTasks?.remove(taskId);
+        try {
+          fn(value);
+        } finally {
+          if (taskId !== undefined) {
+            this.pendingTasks?.remove(taskId);
+          }
         }
       });
     };

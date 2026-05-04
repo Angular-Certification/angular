@@ -6,8 +6,10 @@
  * found in the LICENSE file at https://angular.dev/license
  */
 
+import type {OnDestroy} from '../core';
 import {Injector, ɵɵdefineInjectable} from '../di';
 import {arrayInsert2, arraySplice} from '../util/array_utils';
+import {NgZone} from '../zone';
 
 /**
  * Returns a function that captures a provided delay.
@@ -27,8 +29,9 @@ export function onTimer(delay: number) {
  */
 export function scheduleTimerTrigger(delay: number, callback: VoidFunction, injector: Injector) {
   const scheduler = injector.get(TimerScheduler);
+  const ngZone = injector.get(NgZone);
   const cleanupFn = () => scheduler.remove(callback);
-  scheduler.add(delay, callback);
+  scheduler.add(delay, callback, ngZone);
   return cleanupFn;
 }
 
@@ -37,7 +40,7 @@ export function scheduleTimerTrigger(delay: number, callback: VoidFunction, inje
  * to avoid calling `setTimeout` for each defer block (e.g. if defer blocks
  * are created inside a for loop).
  */
-export class TimerScheduler {
+export class TimerScheduler implements OnDestroy {
   // Indicates whether current callbacks are being invoked.
   executingCallbacks = false;
 
@@ -60,10 +63,10 @@ export class TimerScheduler {
   // as the shape of the `current` list.
   deferred: Array<number | VoidFunction> = [];
 
-  add(delay: number, callback: VoidFunction) {
+  add(delay: number, callback: VoidFunction, ngZone: NgZone) {
     const target = this.executingCallbacks ? this.deferred : this.current;
     this.addToQueue(target, Date.now() + delay, callback);
-    this.scheduleTimer();
+    this.scheduleTimer(ngZone);
   }
 
   remove(callback: VoidFunction) {
@@ -117,7 +120,7 @@ export class TimerScheduler {
     return index;
   }
 
-  private scheduleTimer() {
+  private scheduleTimer(ngZone: NgZone) {
     const callback = () => {
       this.clearTimeout();
 
@@ -170,7 +173,7 @@ export class TimerScheduler {
         }
         this.deferred.length = 0;
       }
-      this.scheduleTimer();
+      this.scheduleTimer(ngZone);
     };
 
     // Avoid running timer callbacks more than once per
@@ -198,7 +201,9 @@ export class TimerScheduler {
 
         const timeout = Math.max(invokeAt - now, FRAME_DURATION_MS);
         this.invokeTimerAt = invokeAt;
-        this.timeoutId = setTimeout(callback, timeout) as unknown as number;
+        this.timeoutId = ngZone.runOutsideAngular(() => {
+          return setTimeout(() => ngZone.run(callback), timeout) as unknown as number;
+        });
       }
     }
   }

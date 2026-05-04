@@ -9,9 +9,10 @@
 import {Routes} from '@angular/router';
 
 import {AppDevToolsComponent} from './devtools-app.component';
-import {FrameManager} from '../../../projects/ng-devtools/src/lib/frame_manager';
-import {Events, MessageBus, PriorityAwareMessageBus} from 'protocol';
+import {FrameManager} from '../../../projects/ng-devtools/src/lib/application-services/frame_manager';
+import {Events, MessageBus, PriorityAwareMessageBus} from '../../../projects/protocol';
 import {IFrameMessageBus} from '../../iframe-message-bus';
+import {DEVTOOLS_BACKEND_URI, DEVTOOLS_FRONTEND_URI} from '../../communication';
 
 export const DEVTOOL_ROUTES: Routes = [
   {
@@ -24,9 +25,8 @@ export const DEVTOOL_ROUTES: Routes = [
         useFactory(): MessageBus<Events> {
           return new PriorityAwareMessageBus(
             new IFrameMessageBus(
-              'angular-devtools',
-              'angular-devtools-backend',
-              // tslint:disable-next-line: no-non-null-assertion
+              DEVTOOLS_FRONTEND_URI,
+              DEVTOOLS_BACKEND_URI,
               () => (document.querySelector('#sample-app') as HTMLIFrameElement).contentWindow!,
             ),
           );

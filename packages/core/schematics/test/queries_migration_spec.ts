@@ -9,9 +9,9 @@
 import {getSystemPath, normalize, virtualFs} from '@angular-devkit/core';
 import {TempScopedNodeJsSyncHost} from '@angular-devkit/core/node/testing';
 import {HostTree} from '@angular-devkit/schematics';
-import {SchematicTestRunner, UnitTestTree} from '@angular-devkit/schematics/testing';
-import {runfiles} from '@bazel/runfiles';
-import shx from 'shelljs';
+import {SchematicTestRunner, UnitTestTree} from '@angular-devkit/schematics/testing/index.js';
+import {resolve} from 'node:path';
+import {rmSync} from 'node:fs';
 
 describe('signal queries migration', () => {
   let runner: SchematicTestRunner;
@@ -24,12 +24,13 @@ describe('signal queries migration', () => {
     host.sync.write(normalize(filePath), virtualFs.stringToFileBuffer(contents));
   }
 
-  function runMigration(options?: {path?: string}) {
+  function runMigration(options?: {bestEffortMode?: boolean}) {
     return runner.runSchematic('signal-queries-migration', options, tree);
   }
 
+  const collectionJsonPath = resolve('../collection.json');
   beforeEach(() => {
-    runner = new SchematicTestRunner('test', runfiles.resolvePackageRelative('../collection.json'));
+    runner = new SchematicTestRunner('test', collectionJsonPath);
     host = new TempScopedNodeJsSyncHost();
     tree = new UnitTestTree(new HostTree(host));
 
@@ -42,14 +43,14 @@ describe('signal queries migration', () => {
       }),
     );
 
-    previousWorkingDir = shx.pwd();
+    previousWorkingDir = process.cwd();
     tmpDirPath = getSystemPath(host.root);
-    shx.cd(tmpDirPath);
+    process.chdir(tmpDirPath);
   });
 
   afterEach(() => {
-    shx.cd(previousWorkingDir);
-    shx.rm('-r', tmpDirPath);
+    process.chdir(previousWorkingDir);
+    rmSync(tmpDirPath, {recursive: true});
   });
 
   it('should work', async () => {
@@ -68,5 +69,69 @@ describe('signal queries migration', () => {
 
     const content = tree.readContent('/index.ts').replace(/\s+/g, ' ');
     expect(content).toContain("readonly ref = contentChild.required<ElementRef>('ref');");
+  });
+
+  it('should report correct statistics', async () => {
+    writeFile(`node_modules/@tsconfig/strictest/tsconfig.json`, `{}`);
+    writeFile(
+      `tsconfig.json`,
+      JSON.stringify({
+        extends: `@tsconfig/strictest/tsconfig.json`,
+      }),
+    );
+    writeFile(
+      '/index.ts',
+      `
+      import {ContentChild, ElementRef, Directive} from '@angular/core';
+
+      @Directive({})
+      export class SomeDirective {
+        @ContentChild('ref') ref!: ElementRef;
+        @ContentChild('ref') ref2: ElementRef|null = null;
+
+        someFn() {
+          this.ref2 = null;
+        }
+      }`,
+    );
+
+    const messages: string[] = [];
+    runner.logger.subscribe((m) => messages.push(m.message));
+
+    await runMigration();
+
+    expect(messages).toContain(`  -> Migrated 1/2 queries.`);
+  });
+
+  it('should report correct statistics with best effort mode', async () => {
+    writeFile(`node_modules/@tsconfig/strictest/tsconfig.json`, `{}`);
+    writeFile(
+      `tsconfig.json`,
+      JSON.stringify({
+        extends: `@tsconfig/strictest/tsconfig.json`,
+      }),
+    );
+    writeFile(
+      '/index.ts',
+      `
+      import {ContentChild, ElementRef, Directive} from '@angular/core';
+
+      @Directive({})
+      export class SomeDirective {
+        @ContentChild('ref') ref!: ElementRef;
+        @ContentChild('ref') ref2: ElementRef|null = null;
+
+        someFn() {
+          this.ref2 = null;
+        }
+      }`,
+    );
+
+    const messages: string[] = [];
+    runner.logger.subscribe((m) => messages.push(m.message));
+
+    await runMigration({bestEffortMode: true});
+
+    expect(messages).toContain(`  -> Migrated 2/2 queries.`);
   });
 });

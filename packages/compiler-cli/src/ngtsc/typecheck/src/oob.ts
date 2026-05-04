@@ -8,11 +8,15 @@
 
 import {
   AbsoluteSourceSpan,
+  AST,
   BindingPipe,
+  BindingType,
+  ParseSourceSpan,
   PropertyRead,
-  PropertyWrite,
   TmplAstBoundAttribute,
   TmplAstBoundEvent,
+  TmplAstComponent,
+  TmplAstDirective,
   TmplAstElement,
   TmplAstForLoopBlock,
   TmplAstForLoopBlockEmpty,
@@ -23,6 +27,7 @@ import {
   TmplAstReference,
   TmplAstSwitchBlockCase,
   TmplAstTemplate,
+  TmplAstTextAttribute,
   TmplAstVariable,
   TmplAstViewportDeferredTrigger,
 } from '@angular/compiler';
@@ -30,10 +35,11 @@ import ts from 'typescript';
 
 import {ErrorCode, makeDiagnostic, makeRelatedInformation, ngErrorCode} from '../../diagnostics';
 import {ClassDeclaration} from '../../reflection';
-import {TemplateDiagnostic, TemplateId} from '../api';
+import {TcbDirectiveMetadata, TemplateDiagnostic, TypeCheckId} from '../api';
 import {makeTemplateDiagnostic} from '../diagnostics';
 
-import {TemplateSourceResolver} from './tcb_util';
+import {TypeCheckSourceResolver} from './tcb_util';
+import {DOC_PAGE_BASE_URL} from '../../diagnostics/src/error_details_base_url';
 
 /**
  * Collects `ts.Diagnostic`s on problems which occur in the template which aren't directly sourced
@@ -51,60 +57,57 @@ export interface OutOfBandDiagnosticRecorder {
    * Reports a `#ref="target"` expression in the template for which a target directive could not be
    * found.
    *
-   * @param templateId the template type-checking ID of the template which contains the broken
-   * reference.
+   * @param id the type-checking ID of the template which contains the broken reference.
    * @param ref the `TmplAstReference` which could not be matched to a directive.
    */
-  missingReferenceTarget(templateId: TemplateId, ref: TmplAstReference): void;
+  missingReferenceTarget(id: TypeCheckId, ref: TmplAstReference): void;
 
   /**
    * Reports usage of a `| pipe` expression in the template for which the named pipe could not be
    * found.
    *
-   * @param templateId the template type-checking ID of the template which contains the unknown
-   * pipe.
+   * @param id the type-checking ID of the template which contains the unknown pipe.
    * @param ast the `BindingPipe` invocation of the pipe which could not be found.
+   * @param isStandalone whether the host component is standalone.
    */
-  missingPipe(templateId: TemplateId, ast: BindingPipe): void;
+  missingPipe(id: TypeCheckId, ast: BindingPipe, isStandalone: boolean): void;
 
   /**
    * Reports usage of a pipe imported via `@Component.deferredImports` outside
    * of a `@defer` block in a template.
    *
-   * @param templateId the template type-checking ID of the template which contains the unknown
-   * pipe.
+   * @param id the type-checking ID of the template which contains the unknown pipe.
    * @param ast the `BindingPipe` invocation of the pipe which could not be found.
    */
-  deferredPipeUsedEagerly(templateId: TemplateId, ast: BindingPipe): void;
+  deferredPipeUsedEagerly(id: TypeCheckId, ast: BindingPipe): void;
 
   /**
    * Reports usage of a component/directive imported via `@Component.deferredImports` outside
    * of a `@defer` block in a template.
    *
-   * @param templateId the template type-checking ID of the template which contains the unknown
-   * pipe.
+   * @param id the type-checking ID of the template which contains the unknown pipe.
    * @param element the element which hosts a component that was defer-loaded.
    */
-  deferredComponentUsedEagerly(templateId: TemplateId, element: TmplAstElement): void;
+  deferredComponentUsedEagerly(id: TypeCheckId, element: TmplAstElement): void;
 
   /**
    * Reports a duplicate declaration of a template variable.
    *
-   * @param templateId the template type-checking ID of the template which contains the duplicate
+   * @param id the type-checking ID of the template which contains the duplicate
    * declaration.
    * @param variable the `TmplAstVariable` which duplicates a previously declared variable.
    * @param firstDecl the first variable declaration which uses the same name as `variable`.
    */
   duplicateTemplateVar(
-    templateId: TemplateId,
+    id: TypeCheckId,
     variable: TmplAstVariable,
     firstDecl: TmplAstVariable,
   ): void;
 
-  requiresInlineTcb(templateId: TemplateId, node: ClassDeclaration): void;
+  requiresInlineTcb(id: TypeCheckId, node: ClassDeclaration): void;
 
   requiresInlineTypeConstructors(
-    templateId: TemplateId,
+    id: TypeCheckId,
     node: ClassDeclaration,
     directives: ClassDeclaration[],
   ): void;
@@ -113,23 +116,23 @@ export interface OutOfBandDiagnosticRecorder {
    * Report a warning when structural directives support context guards, but the current
    * type-checking configuration prohibits their usage.
    */
-  suboptimalTypeInference(templateId: TemplateId, variables: TmplAstVariable[]): void;
+  suboptimalTypeInference(id: TypeCheckId, variables: TmplAstVariable[]): void;
 
   /**
    * Reports a split two way binding error message.
    */
   splitTwoWayBinding(
-    templateId: TemplateId,
+    id: TypeCheckId,
     input: TmplAstBoundAttribute,
     output: TmplAstBoundEvent,
-    inputConsumer: ClassDeclaration,
-    outputConsumer: ClassDeclaration | TmplAstElement,
+    inputConsumer: Pick<TcbDirectiveMetadata, 'name' | 'isComponent' | 'ref'>,
+    outputConsumer: Pick<TcbDirectiveMetadata, 'name' | 'isComponent' | 'ref'> | TmplAstElement,
   ): void;
 
   /** Reports required inputs that haven't been bound. */
   missingRequiredInputs(
-    templateId: TemplateId,
-    element: TmplAstElement | TmplAstTemplate,
+    id: TypeCheckId,
+    element: TmplAstElement | TmplAstTemplate | TmplAstComponent | TmplAstDirective,
     directiveName: string,
     isComponent: boolean,
     inputAliases: string[],
@@ -139,7 +142,7 @@ export interface OutOfBandDiagnosticRecorder {
    * Reports accesses of properties that aren't available in a `for` block's tracking expression.
    */
   illegalForLoopTrackAccess(
-    templateId: TemplateId,
+    id: TypeCheckId,
     block: TmplAstForLoopBlock,
     access: PropertyRead,
   ): void;
@@ -148,7 +151,7 @@ export interface OutOfBandDiagnosticRecorder {
    * Reports deferred triggers that cannot access the element they're referring to.
    */
   inaccessibleDeferredTriggerElement(
-    templateId: TemplateId,
+    id: TypeCheckId,
     trigger:
       | TmplAstHoverDeferredTrigger
       | TmplAstInteractionDeferredTrigger
@@ -159,7 +162,7 @@ export interface OutOfBandDiagnosticRecorder {
    * Reports cases where control flow nodes prevent content projection.
    */
   controlFlowPreventingContentProjection(
-    templateId: TemplateId,
+    id: TypeCheckId,
     category: ts.DiagnosticCategory,
     projectionNode: TmplAstElement | TmplAstTemplate,
     componentName: string,
@@ -173,51 +176,122 @@ export interface OutOfBandDiagnosticRecorder {
   ): void;
 
   /** Reports cases where users are writing to `@let` declarations. */
-  illegalWriteToLetDeclaration(
-    templateId: TemplateId,
-    node: PropertyWrite,
-    target: TmplAstLetDeclaration,
-  ): void;
+  illegalWriteToLetDeclaration(id: TypeCheckId, node: AST, target: TmplAstLetDeclaration): void;
 
   /** Reports cases where users are accessing an `@let` before it is defined.. */
-  letUsedBeforeDefinition(
-    templateId: TemplateId,
-    node: PropertyRead,
-    target: TmplAstLetDeclaration,
-  ): void;
+  letUsedBeforeDefinition(id: TypeCheckId, node: PropertyRead, target: TmplAstLetDeclaration): void;
 
   /**
    * Reports a `@let` declaration that conflicts with another symbol in the same scope.
    *
-   * @param templateId the template type-checking ID of the template which contains the declaration.
+   * @param id the type-checking ID of the template which contains the declaration.
    * @param current the `TmplAstLetDeclaration` which is invalid.
    */
-  conflictingDeclaration(templateId: TemplateId, current: TmplAstLetDeclaration): void;
+  conflictingDeclaration(id: TypeCheckId, current: TmplAstLetDeclaration): void;
+
+  /**
+   * Reports that a named template dependency (e.g. `<Missing/>`) is not available.
+   * @param id Type checking ID of the template in which the dependency is declared.
+   * @param node Node that declares the dependency.
+   */
+  missingNamedTemplateDependency(id: TypeCheckId, node: TmplAstComponent | TmplAstDirective): void;
+
+  /**
+   * Reports that a templace dependency of the wrong kind has been referenced at a specific position
+   * (e.g. `<SomeDirective/>`).
+   * @param id Type checking ID of the template in which the dependency is declared.
+   * @param node Node that declares the dependency.
+   */
+  incorrectTemplateDependencyType(id: TypeCheckId, node: TmplAstComponent | TmplAstDirective): void;
+
+  /**
+   * Reports a binding inside directive syntax that does not match any of the inputs/outputs of
+   * the directive.
+   * @param id Type checking ID of the template in which the directive was defined.
+   * @param directive Directive that contains the binding.
+   * @param node Node declaring the binding.
+   */
+  unclaimedDirectiveBinding(
+    id: TypeCheckId,
+    directive: TmplAstDirective,
+    node: TmplAstBoundAttribute | TmplAstTextAttribute | TmplAstBoundEvent,
+  ): void;
+
+  /**
+   * Reports that an implicit deferred trigger is set on a block that does not have a placeholder.
+   */
+  deferImplicitTriggerMissingPlaceholder(
+    id: TypeCheckId,
+    trigger:
+      | TmplAstHoverDeferredTrigger
+      | TmplAstInteractionDeferredTrigger
+      | TmplAstViewportDeferredTrigger,
+  ): void;
+
+  /**
+   * Reports that an implicit deferred trigger is set on a block whose placeholder is not set up
+   * correctly (e.g. more than one root node).
+   */
+  deferImplicitTriggerInvalidPlaceholder(
+    id: TypeCheckId,
+    trigger:
+      | TmplAstHoverDeferredTrigger
+      | TmplAstInteractionDeferredTrigger
+      | TmplAstViewportDeferredTrigger,
+  ): void;
+
+  /**
+   * Reports an unsupported binding on a form `FormField` node.
+   */
+  formFieldUnsupportedBinding(
+    id: TypeCheckId,
+    node: TmplAstBoundAttribute | TmplAstTextAttribute,
+  ): void;
 }
 
 export class OutOfBandDiagnosticRecorderImpl implements OutOfBandDiagnosticRecorder {
-  private _diagnostics: TemplateDiagnostic[] = [];
+  private readonly _diagnostics: TemplateDiagnostic[] = [];
 
   /**
    * Tracks which `BindingPipe` nodes have already been recorded as invalid, so only one diagnostic
    * is ever produced per node.
    */
-  private recordedPipes = new Set<BindingPipe>();
+  private readonly recordedPipes = new Set<BindingPipe>();
 
-  constructor(private resolver: TemplateSourceResolver) {}
+  /** Common pipes that can be suggested to users. */
+  private readonly pipeSuggestions = new Map<string, string>([
+    ['async', 'AsyncPipe'],
+    ['uppercase', 'UpperCasePipe'],
+    ['lowercase', 'LowerCasePipe'],
+    ['json', 'JsonPipe'],
+    ['slice', 'SlicePipe'],
+    ['number', 'DecimalPipe'],
+    ['percent', 'PercentPipe'],
+    ['titlecase', 'TitleCasePipe'],
+    ['currency', 'CurrencyPipe'],
+    ['date', 'DatePipe'],
+    ['i18nPlural', 'I18nPluralPipe'],
+    ['i18nSelect', 'I18nSelectPipe'],
+    ['keyvalue', 'KeyValuePipe'],
+  ]);
+
+  constructor(
+    private resolver: TypeCheckSourceResolver,
+    private getSourceFile: (fileName: string) => ts.SourceFile | undefined = (name) => undefined,
+  ) {}
 
   get diagnostics(): ReadonlyArray<TemplateDiagnostic> {
     return this._diagnostics;
   }
 
-  missingReferenceTarget(templateId: TemplateId, ref: TmplAstReference): void {
-    const mapping = this.resolver.getSourceMapping(templateId);
+  missingReferenceTarget(id: TypeCheckId, ref: TmplAstReference): void {
+    const mapping = this.resolver.getTemplateSourceMapping(id);
     const value = ref.value.trim();
 
     const errorMsg = `No directive found with exportAs '${value}'.`;
     this._diagnostics.push(
       makeTemplateDiagnostic(
-        templateId,
+        id,
         mapping,
         ref.valueSpan || ref.sourceSpan,
         ts.DiagnosticCategory.Error,
@@ -227,23 +301,39 @@ export class OutOfBandDiagnosticRecorderImpl implements OutOfBandDiagnosticRecor
     );
   }
 
-  missingPipe(templateId: TemplateId, ast: BindingPipe): void {
+  missingPipe(id: TypeCheckId, ast: BindingPipe, isStandalone: boolean): void {
     if (this.recordedPipes.has(ast)) {
       return;
     }
 
-    const mapping = this.resolver.getSourceMapping(templateId);
-    const errorMsg = `No pipe found with name '${ast.name}'.`;
-
-    const sourceSpan = this.resolver.toParseSourceSpan(templateId, ast.nameSpan);
+    const sourceSpan = this.resolver.toTemplateParseSourceSpan(id, ast.nameSpan);
     if (sourceSpan === null) {
       throw new Error(
         `Assertion failure: no SourceLocation found for usage of pipe '${ast.name}'.`,
       );
     }
+
+    const mapping = this.resolver.getTemplateSourceMapping(id);
+    let errorMsg = `No pipe found with name '${ast.name}'.`;
+
+    if (this.pipeSuggestions.has(ast.name)) {
+      const suggestedClassName = this.pipeSuggestions.get(ast.name)!;
+      const suggestedImport = '@angular/common';
+
+      if (isStandalone) {
+        errorMsg +=
+          `\nTo fix this, import the "${suggestedClassName}" class from "${suggestedImport}"` +
+          ` and add it to the "imports" array of the component.`;
+      } else {
+        errorMsg +=
+          `\nTo fix this, import the "${suggestedClassName}" class from "${suggestedImport}"` +
+          ` and add it to the "imports" array of the module declaring the component.`;
+      }
+    }
+
     this._diagnostics.push(
       makeTemplateDiagnostic(
-        templateId,
+        id,
         mapping,
         sourceSpan,
         ts.DiagnosticCategory.Error,
@@ -254,19 +344,19 @@ export class OutOfBandDiagnosticRecorderImpl implements OutOfBandDiagnosticRecor
     this.recordedPipes.add(ast);
   }
 
-  deferredPipeUsedEagerly(templateId: TemplateId, ast: BindingPipe): void {
+  deferredPipeUsedEagerly(id: TypeCheckId, ast: BindingPipe): void {
     if (this.recordedPipes.has(ast)) {
       return;
     }
 
-    const mapping = this.resolver.getSourceMapping(templateId);
+    const mapping = this.resolver.getTemplateSourceMapping(id);
     const errorMsg =
       `Pipe '${ast.name}' was imported  via \`@Component.deferredImports\`, ` +
       `but was used outside of a \`@defer\` block in a template. To fix this, either ` +
       `use the '${ast.name}' pipe inside of a \`@defer\` block or import this dependency ` +
       `using the \`@Component.imports\` field.`;
 
-    const sourceSpan = this.resolver.toParseSourceSpan(templateId, ast.nameSpan);
+    const sourceSpan = this.resolver.toTemplateParseSourceSpan(id, ast.nameSpan);
     if (sourceSpan === null) {
       throw new Error(
         `Assertion failure: no SourceLocation found for usage of pipe '${ast.name}'.`,
@@ -274,7 +364,7 @@ export class OutOfBandDiagnosticRecorderImpl implements OutOfBandDiagnosticRecor
     }
     this._diagnostics.push(
       makeTemplateDiagnostic(
-        templateId,
+        id,
         mapping,
         sourceSpan,
         ts.DiagnosticCategory.Error,
@@ -285,8 +375,8 @@ export class OutOfBandDiagnosticRecorderImpl implements OutOfBandDiagnosticRecor
     this.recordedPipes.add(ast);
   }
 
-  deferredComponentUsedEagerly(templateId: TemplateId, element: TmplAstElement): void {
-    const mapping = this.resolver.getSourceMapping(templateId);
+  deferredComponentUsedEagerly(id: TypeCheckId, element: TmplAstElement): void {
+    const mapping = this.resolver.getTemplateSourceMapping(id);
     const errorMsg =
       `Element '${element.name}' contains a component or a directive that ` +
       `was imported  via \`@Component.deferredImports\`, but the element itself is located ` +
@@ -296,7 +386,7 @@ export class OutOfBandDiagnosticRecorderImpl implements OutOfBandDiagnosticRecor
 
     const {start, end} = element.startSourceSpan;
     const absoluteSourceSpan = new AbsoluteSourceSpan(start.offset, end.offset);
-    const sourceSpan = this.resolver.toParseSourceSpan(templateId, absoluteSourceSpan);
+    const sourceSpan = this.resolver.toTemplateParseSourceSpan(id, absoluteSourceSpan);
     if (sourceSpan === null) {
       throw new Error(
         `Assertion failure: no SourceLocation found for usage of pipe '${element.name}'.`,
@@ -304,7 +394,7 @@ export class OutOfBandDiagnosticRecorderImpl implements OutOfBandDiagnosticRecor
     }
     this._diagnostics.push(
       makeTemplateDiagnostic(
-        templateId,
+        id,
         mapping,
         sourceSpan,
         ts.DiagnosticCategory.Error,
@@ -315,11 +405,11 @@ export class OutOfBandDiagnosticRecorderImpl implements OutOfBandDiagnosticRecor
   }
 
   duplicateTemplateVar(
-    templateId: TemplateId,
+    id: TypeCheckId,
     variable: TmplAstVariable,
     firstDecl: TmplAstVariable,
   ): void {
-    const mapping = this.resolver.getSourceMapping(templateId);
+    const mapping = this.resolver.getTemplateSourceMapping(id);
     const errorMsg = `Cannot redeclare variable '${variable.name}' as it was previously declared elsewhere for the same template.`;
 
     // The allocation of the error here is pretty useless for variables declared in microsyntax,
@@ -329,7 +419,7 @@ export class OutOfBandDiagnosticRecorderImpl implements OutOfBandDiagnosticRecor
     // TODO(alxhub): allocate to a tighter span once one is available.
     this._diagnostics.push(
       makeTemplateDiagnostic(
-        templateId,
+        id,
         mapping,
         variable.sourceSpan,
         ts.DiagnosticCategory.Error,
@@ -347,10 +437,10 @@ export class OutOfBandDiagnosticRecorderImpl implements OutOfBandDiagnosticRecor
     );
   }
 
-  requiresInlineTcb(templateId: TemplateId, node: ClassDeclaration): void {
+  requiresInlineTcb(id: TypeCheckId, node: ClassDeclaration): void {
     this._diagnostics.push(
       makeInlineDiagnostic(
-        templateId,
+        id,
         ErrorCode.INLINE_TCB_REQUIRED,
         node.name,
         `This component requires inline template type-checking, which is not supported by the current environment.`,
@@ -359,7 +449,7 @@ export class OutOfBandDiagnosticRecorderImpl implements OutOfBandDiagnosticRecor
   }
 
   requiresInlineTypeConstructors(
-    templateId: TemplateId,
+    id: TypeCheckId,
     node: ClassDeclaration,
     directives: ClassDeclaration[],
   ): void {
@@ -372,7 +462,7 @@ export class OutOfBandDiagnosticRecorderImpl implements OutOfBandDiagnosticRecor
 
     this._diagnostics.push(
       makeInlineDiagnostic(
-        templateId,
+        id,
         ErrorCode.INLINE_TYPE_CTOR_REQUIRED,
         node.name,
         message,
@@ -383,8 +473,8 @@ export class OutOfBandDiagnosticRecorderImpl implements OutOfBandDiagnosticRecor
     );
   }
 
-  suboptimalTypeInference(templateId: TemplateId, variables: TmplAstVariable[]): void {
-    const mapping = this.resolver.getSourceMapping(templateId);
+  suboptimalTypeInference(id: TypeCheckId, variables: TmplAstVariable[]): void {
+    const mapping = this.resolver.getTemplateSourceMapping(id);
 
     // Select one of the template variables that's most suitable for reporting the diagnostic. Any
     // variable will do, but prefer one bound to the context's $implicit if present.
@@ -409,7 +499,7 @@ export class OutOfBandDiagnosticRecorderImpl implements OutOfBandDiagnosticRecor
 
     this._diagnostics.push(
       makeTemplateDiagnostic(
-        templateId,
+        id,
         mapping,
         diagnosticVar.keySpan,
         ts.DiagnosticCategory.Suggestion,
@@ -420,25 +510,30 @@ export class OutOfBandDiagnosticRecorderImpl implements OutOfBandDiagnosticRecor
   }
 
   splitTwoWayBinding(
-    templateId: TemplateId,
+    id: TypeCheckId,
     input: TmplAstBoundAttribute,
     output: TmplAstBoundEvent,
-    inputConsumer: ClassDeclaration,
-    outputConsumer: ClassDeclaration | TmplAstElement,
+    inputConsumer: Pick<TcbDirectiveMetadata, 'name' | 'isComponent' | 'ref'>,
+    outputConsumer: Pick<TcbDirectiveMetadata, 'name' | 'isComponent' | 'ref'> | TmplAstElement,
   ): void {
-    const mapping = this.resolver.getSourceMapping(templateId);
+    const mapping = this.resolver.getTemplateSourceMapping(id);
     const errorMsg = `The property and event halves of the two-way binding '${input.name}' are not bound to the same target.
-            Find more at https://angular.dev/guide/templates/two-way-binding#how-two-way-binding-works`;
+            Find more at ${DOC_PAGE_BASE_URL}/guide/templates/two-way-binding`;
 
     const relatedMessages: {text: string; start: number; end: number; sourceFile: ts.SourceFile}[] =
       [];
 
-    relatedMessages.push({
-      text: `The property half of the binding is to the '${inputConsumer.name.text}' component.`,
-      start: inputConsumer.name.getStart(),
-      end: inputConsumer.name.getEnd(),
-      sourceFile: inputConsumer.name.getSourceFile(),
-    });
+    if (inputConsumer.ref.nodeNameSpan && inputConsumer.ref.nodeFilePath) {
+      const sf = this.getSourceFile(inputConsumer.ref.nodeFilePath);
+      if (sf) {
+        relatedMessages.push({
+          text: `The property half of the binding is to the '${inputConsumer.name}' ${inputConsumer.isComponent ? 'component' : 'directive'}.`,
+          start: inputConsumer.ref.nodeNameSpan.start,
+          end: inputConsumer.ref.nodeNameSpan.end,
+          sourceFile: sf,
+        });
+      }
+    }
 
     if (outputConsumer instanceof TmplAstElement) {
       let message = `The event half of the binding is to a native event called '${input.name}' on the <${outputConsumer.name}> DOM element.`;
@@ -452,17 +547,22 @@ export class OutOfBandDiagnosticRecorderImpl implements OutOfBandDiagnosticRecor
         sourceFile: mapping.node.getSourceFile(),
       });
     } else {
-      relatedMessages.push({
-        text: `The event half of the binding is to the '${outputConsumer.name.text}' component.`,
-        start: outputConsumer.name.getStart(),
-        end: outputConsumer.name.getEnd(),
-        sourceFile: outputConsumer.name.getSourceFile(),
-      });
+      if (outputConsumer.ref.nodeNameSpan && outputConsumer.ref.nodeFilePath) {
+        const sf = this.getSourceFile(outputConsumer.ref.nodeFilePath);
+        if (sf) {
+          relatedMessages.push({
+            text: `The event half of the binding is to the '${outputConsumer.name}' ${outputConsumer.isComponent ? 'component' : 'directive'}.`,
+            start: outputConsumer.ref.nodeNameSpan.start,
+            end: outputConsumer.ref.nodeNameSpan.end,
+            sourceFile: sf,
+          });
+        }
+      }
     }
 
     this._diagnostics.push(
       makeTemplateDiagnostic(
-        templateId,
+        id,
         mapping,
         input.keySpan,
         ts.DiagnosticCategory.Error,
@@ -474,8 +574,8 @@ export class OutOfBandDiagnosticRecorderImpl implements OutOfBandDiagnosticRecor
   }
 
   missingRequiredInputs(
-    templateId: TemplateId,
-    element: TmplAstElement | TmplAstTemplate,
+    id: TypeCheckId,
+    element: TmplAstElement | TmplAstTemplate | TmplAstComponent | TmplAstDirective,
     directiveName: string,
     isComponent: boolean,
     inputAliases: string[],
@@ -486,11 +586,33 @@ export class OutOfBandDiagnosticRecorderImpl implements OutOfBandDiagnosticRecor
       isComponent ? 'component' : 'directive'
     } ${directiveName} must be specified.`;
 
+    let span: ParseSourceSpan;
+    let name: string | null;
+
+    if (element instanceof TmplAstElement || element instanceof TmplAstDirective) {
+      name = element.name;
+    } else if (element instanceof TmplAstComponent) {
+      name = element.componentName;
+    } else {
+      name = null;
+    }
+
+    if (name === null) {
+      span = element.startSourceSpan;
+    } else {
+      // Only highlight the tag name since highlighting the entire start tag can be noisy.
+      const start = element.startSourceSpan.start.moveBy(1);
+      const end = element.startSourceSpan.end.moveBy(
+        start.offset + name.length - element.startSourceSpan.end.offset,
+      );
+      span = new ParseSourceSpan(start, end);
+    }
+
     this._diagnostics.push(
       makeTemplateDiagnostic(
-        templateId,
-        this.resolver.getSourceMapping(templateId),
-        element.startSourceSpan,
+        id,
+        this.resolver.getTemplateSourceMapping(id),
+        span,
         ts.DiagnosticCategory.Error,
         ngErrorCode(ErrorCode.MISSING_REQUIRED_INPUTS),
         message,
@@ -499,11 +621,11 @@ export class OutOfBandDiagnosticRecorderImpl implements OutOfBandDiagnosticRecor
   }
 
   illegalForLoopTrackAccess(
-    templateId: TemplateId,
+    id: TypeCheckId,
     block: TmplAstForLoopBlock,
     access: PropertyRead,
   ): void {
-    const sourceSpan = this.resolver.toParseSourceSpan(templateId, access.sourceSpan);
+    const sourceSpan = this.resolver.toTemplateParseSourceSpan(id, access.sourceSpan);
     if (sourceSpan === null) {
       throw new Error(`Assertion failure: no SourceLocation found for property read.`);
     }
@@ -517,8 +639,8 @@ export class OutOfBandDiagnosticRecorderImpl implements OutOfBandDiagnosticRecor
 
     this._diagnostics.push(
       makeTemplateDiagnostic(
-        templateId,
-        this.resolver.getSourceMapping(templateId),
+        id,
+        this.resolver.getTemplateSourceMapping(id),
         sourceSpan,
         ts.DiagnosticCategory.Error,
         ngErrorCode(ErrorCode.ILLEGAL_FOR_LOOP_TRACK_ACCESS),
@@ -528,7 +650,7 @@ export class OutOfBandDiagnosticRecorderImpl implements OutOfBandDiagnosticRecor
   }
 
   inaccessibleDeferredTriggerElement(
-    templateId: TemplateId,
+    id: TypeCheckId,
     trigger:
       | TmplAstHoverDeferredTrigger
       | TmplAstInteractionDeferredTrigger
@@ -549,8 +671,8 @@ export class OutOfBandDiagnosticRecorderImpl implements OutOfBandDiagnosticRecor
 
     this._diagnostics.push(
       makeTemplateDiagnostic(
-        templateId,
-        this.resolver.getSourceMapping(templateId),
+        id,
+        this.resolver.getTemplateSourceMapping(id),
         trigger.sourceSpan,
         ts.DiagnosticCategory.Error,
         ngErrorCode(ErrorCode.INACCESSIBLE_DEFERRED_TRIGGER_ELEMENT),
@@ -560,7 +682,7 @@ export class OutOfBandDiagnosticRecorderImpl implements OutOfBandDiagnosticRecor
   }
 
   controlFlowPreventingContentProjection(
-    templateId: TemplateId,
+    id: TypeCheckId,
     category: ts.DiagnosticCategory,
     projectionNode: TmplAstElement | TmplAstTemplate,
     componentName: string,
@@ -595,8 +717,8 @@ export class OutOfBandDiagnosticRecorderImpl implements OutOfBandDiagnosticRecor
 
     this._diagnostics.push(
       makeTemplateDiagnostic(
-        templateId,
-        this.resolver.getSourceMapping(templateId),
+        id,
+        this.resolver.getTemplateSourceMapping(id),
         projectionNode.startSourceSpan,
         category,
         ngErrorCode(ErrorCode.CONTROL_FLOW_PREVENTING_CONTENT_PROJECTION),
@@ -605,20 +727,16 @@ export class OutOfBandDiagnosticRecorderImpl implements OutOfBandDiagnosticRecor
     );
   }
 
-  illegalWriteToLetDeclaration(
-    templateId: TemplateId,
-    node: PropertyWrite,
-    target: TmplAstLetDeclaration,
-  ): void {
-    const sourceSpan = this.resolver.toParseSourceSpan(templateId, node.sourceSpan);
+  illegalWriteToLetDeclaration(id: TypeCheckId, node: AST, target: TmplAstLetDeclaration): void {
+    const sourceSpan = this.resolver.toTemplateParseSourceSpan(id, node.sourceSpan);
     if (sourceSpan === null) {
       throw new Error(`Assertion failure: no SourceLocation found for property write.`);
     }
 
     this._diagnostics.push(
       makeTemplateDiagnostic(
-        templateId,
-        this.resolver.getSourceMapping(templateId),
+        id,
+        this.resolver.getTemplateSourceMapping(id),
         sourceSpan,
         ts.DiagnosticCategory.Error,
         ngErrorCode(ErrorCode.ILLEGAL_LET_WRITE),
@@ -628,19 +746,19 @@ export class OutOfBandDiagnosticRecorderImpl implements OutOfBandDiagnosticRecor
   }
 
   letUsedBeforeDefinition(
-    templateId: TemplateId,
+    id: TypeCheckId,
     node: PropertyRead,
     target: TmplAstLetDeclaration,
   ): void {
-    const sourceSpan = this.resolver.toParseSourceSpan(templateId, node.sourceSpan);
+    const sourceSpan = this.resolver.toTemplateParseSourceSpan(id, node.sourceSpan);
     if (sourceSpan === null) {
       throw new Error(`Assertion failure: no SourceLocation found for property read.`);
     }
 
     this._diagnostics.push(
       makeTemplateDiagnostic(
-        templateId,
-        this.resolver.getSourceMapping(templateId),
+        id,
+        this.resolver.getTemplateSourceMapping(id),
         sourceSpan,
         ts.DiagnosticCategory.Error,
         ngErrorCode(ErrorCode.LET_USED_BEFORE_DEFINITION),
@@ -649,13 +767,13 @@ export class OutOfBandDiagnosticRecorderImpl implements OutOfBandDiagnosticRecor
     );
   }
 
-  conflictingDeclaration(templateId: TemplateId, decl: TmplAstLetDeclaration): void {
-    const mapping = this.resolver.getSourceMapping(templateId);
+  conflictingDeclaration(id: TypeCheckId, decl: TmplAstLetDeclaration): void {
+    const mapping = this.resolver.getTemplateSourceMapping(id);
     const errorMsg = `Cannot declare @let called '${decl.name}' as there is another symbol in the template with the same name.`;
 
     this._diagnostics.push(
       makeTemplateDiagnostic(
-        templateId,
+        id,
         mapping,
         decl.sourceSpan,
         ts.DiagnosticCategory.Error,
@@ -664,10 +782,137 @@ export class OutOfBandDiagnosticRecorderImpl implements OutOfBandDiagnosticRecor
       ),
     );
   }
+
+  missingNamedTemplateDependency(id: TypeCheckId, node: TmplAstComponent | TmplAstDirective): void {
+    this._diagnostics.push(
+      makeTemplateDiagnostic(
+        id,
+        this.resolver.getTemplateSourceMapping(id),
+        node.startSourceSpan,
+        ts.DiagnosticCategory.Error,
+        ngErrorCode(ErrorCode.MISSING_NAMED_TEMPLATE_DEPENDENCY),
+        // Wording is meant to mimic the wording TS uses in their diagnostic for missing symbols.
+        `Cannot find name "${node instanceof TmplAstDirective ? node.name : node.componentName}". ` +
+          `Selectorless references are only supported to classes or non-type import statements.`,
+      ),
+    );
+  }
+
+  incorrectTemplateDependencyType(
+    id: TypeCheckId,
+    node: TmplAstComponent | TmplAstDirective,
+  ): void {
+    this._diagnostics.push(
+      makeTemplateDiagnostic(
+        id,
+        this.resolver.getTemplateSourceMapping(id),
+        node.startSourceSpan,
+        ts.DiagnosticCategory.Error,
+        ngErrorCode(ErrorCode.INCORRECT_NAMED_TEMPLATE_DEPENDENCY_TYPE),
+        `Incorrect reference type. Type must be a standalone ${node instanceof TmplAstComponent ? '@Component' : '@Directive'}.`,
+      ),
+    );
+  }
+
+  unclaimedDirectiveBinding(
+    id: TypeCheckId,
+    directive: TmplAstDirective,
+    node: TmplAstBoundAttribute | TmplAstTextAttribute | TmplAstBoundEvent,
+  ): void {
+    const errorMsg =
+      `Directive ${directive.name} does not have an ` +
+      `${node instanceof TmplAstBoundEvent ? 'output' : 'input'} named "${node.name}". ` +
+      `Bindings to directives must target existing inputs or outputs.`;
+
+    this._diagnostics.push(
+      makeTemplateDiagnostic(
+        id,
+        this.resolver.getTemplateSourceMapping(id),
+        node.keySpan || node.sourceSpan,
+        ts.DiagnosticCategory.Error,
+        ngErrorCode(ErrorCode.UNCLAIMED_DIRECTIVE_BINDING),
+        errorMsg,
+      ),
+    );
+  }
+
+  deferImplicitTriggerMissingPlaceholder(
+    id: TypeCheckId,
+    trigger:
+      | TmplAstHoverDeferredTrigger
+      | TmplAstInteractionDeferredTrigger
+      | TmplAstViewportDeferredTrigger,
+  ): void {
+    this._diagnostics.push(
+      makeTemplateDiagnostic(
+        id,
+        this.resolver.getTemplateSourceMapping(id),
+        trigger.sourceSpan,
+        ts.DiagnosticCategory.Error,
+        ngErrorCode(ErrorCode.DEFER_IMPLICIT_TRIGGER_MISSING_PLACEHOLDER),
+        'Trigger with no target can only be placed on an @defer that has a @placeholder block',
+      ),
+    );
+  }
+
+  deferImplicitTriggerInvalidPlaceholder(
+    id: TypeCheckId,
+    trigger:
+      | TmplAstHoverDeferredTrigger
+      | TmplAstInteractionDeferredTrigger
+      | TmplAstViewportDeferredTrigger,
+  ): void {
+    this._diagnostics.push(
+      makeTemplateDiagnostic(
+        id,
+        this.resolver.getTemplateSourceMapping(id),
+        trigger.sourceSpan,
+        ts.DiagnosticCategory.Error,
+        ngErrorCode(ErrorCode.DEFER_IMPLICIT_TRIGGER_INVALID_PLACEHOLDER),
+        'Trigger with no target can only be placed on an @defer that has a ' +
+          '@placeholder block with exactly one root element node',
+      ),
+    );
+  }
+
+  formFieldUnsupportedBinding(
+    id: TypeCheckId,
+    node: TmplAstBoundAttribute | TmplAstTextAttribute,
+  ): void {
+    let message: string;
+
+    if (node instanceof TmplAstBoundAttribute) {
+      let name: string;
+
+      if (node.type === BindingType.Property) {
+        name = `[${node.name}]`;
+      } else if (node.type === BindingType.Attribute) {
+        name = `[attr.${node.name}]`;
+      } else {
+        // We shouldn't hit this, but we have this logic as a fallback.
+        name = node.name;
+      }
+
+      message = `Binding to '${name}' is not allowed on nodes using the '[formField]' directive`;
+    } else {
+      message = `Setting the '${node.name}' attribute is not allowed on nodes using the '[formField]' directive`;
+    }
+
+    this._diagnostics.push(
+      makeTemplateDiagnostic(
+        id,
+        this.resolver.getTemplateSourceMapping(id),
+        node.sourceSpan,
+        ts.DiagnosticCategory.Error,
+        ngErrorCode(ErrorCode.FORM_FIELD_UNSUPPORTED_BINDING),
+        message,
+      ),
+    );
+  }
 }
 
 function makeInlineDiagnostic(
-  templateId: TemplateId,
+  id: TypeCheckId,
   code: ErrorCode.INLINE_TCB_REQUIRED | ErrorCode.INLINE_TYPE_CTOR_REQUIRED,
   node: ts.Node,
   messageText: string | ts.DiagnosticMessageChain,
@@ -675,7 +920,7 @@ function makeInlineDiagnostic(
 ): TemplateDiagnostic {
   return {
     ...makeDiagnostic(code, node, messageText, relatedInformation),
-    componentFile: node.getSourceFile(),
-    templateId,
+    sourceFile: node.getSourceFile(),
+    typeCheckId: id,
   };
 }

@@ -7,6 +7,9 @@
  */
 
 import {CommonModule, ɵPLATFORM_BROWSER_ID as PLATFORM_BROWSER_ID} from '@angular/common';
+import {isBrowser} from '@angular/private/testing';
+import {ActivatedRoute, provideRouter, Router, RouterOutlet} from '@angular/router';
+import {Console} from '../../src/console';
 import {
   ApplicationRef,
   Attribute,
@@ -15,39 +18,37 @@ import {
   Component,
   createComponent,
   Directive,
+  ElementRef,
   EnvironmentInjector,
   ErrorHandler,
   inject,
   Injectable,
   InjectionToken,
+  Injector,
   Input,
   NgModule,
   NgZone,
   Pipe,
   PipeTransform,
   PLATFORM_ID,
+  provideZoneChangeDetection,
   QueryList,
+  ɵRuntimeError as RuntimeError,
   Type,
+  ViewChild,
   ViewChildren,
   ɵDEFER_BLOCK_DEPENDENCY_INTERCEPTOR,
-  ɵRuntimeError as RuntimeError,
-  Injector,
-  ElementRef,
-  ViewChild,
-} from '@angular/core';
-import {getComponentDef} from '@angular/core/src/render3/def_getters';
-import {
-  ComponentFixture,
-  DeferBlockBehavior,
-  fakeAsync,
-  flush,
-  TestBed,
-  tick,
-} from '@angular/core/testing';
-import {getInjectorResolutionPath} from '@angular/core/src/render3/util/injector_discovery_utils';
-import {ActivatedRoute, provideRouter, Router, RouterOutlet} from '@angular/router';
-import {ChainedInjector} from '@angular/core/src/render3/chained_injector';
+} from '../../src/core';
+import {IDLE_SERVICE, IdleService, provideIdleServiceWith} from '../../src/defer/idle_service';
+import {IdleScheduler} from '../../src/defer/idle_scheduler';
+import {TimerScheduler} from '../../src/defer/timer_scheduler';
+import {formatRuntimeErrorCode, RuntimeErrorCode} from '../../src/errors';
+import {provideNgReflectAttributes} from '../../src/ng_reflect';
+import {ChainedInjector} from '../../src/render3/chained_injector';
+import {getComponentDef} from '../../src/render3/def_getters';
+import {getInjectorResolutionPath} from '../../src/render3/util/injector_discovery_utils';
 import {global} from '../../src/util/global';
+import {ComponentFixture, DeferBlockBehavior, fakeAsync, flush, TestBed, tick} from '../../testing';
 
 /**
  * Clears all associated directive defs from a given component class.
@@ -95,15 +96,6 @@ function allPendingDynamicImports() {
 }
 
 /**
- * Invoke a callback function after a specified amount of time (in ms).
- */
-function timer(delay: number): Promise<void> {
-  return new Promise<void>((resolve) => {
-    setTimeout(() => resolve(), delay);
-  });
-}
-
-/**
  * Allows to verify behavior of defer blocks by providing a set of
  * [time, expected output] pairs. Also allows to provide a function
  * instead of an expected output string, in which case the function
@@ -129,6 +121,41 @@ async function verifyTimeline(
   }
 }
 
+class FakeTimerScheduler {
+  cbs: VoidFunction[] = [];
+  add(delay: number, callback: VoidFunction) {
+    this.cbs.push(callback);
+  }
+  remove(callback: VoidFunction) {
+    /* noop */
+  }
+
+  invoke() {
+    for (const cb of this.cbs) {
+      cb();
+    }
+  }
+}
+
+@Injectable()
+export class DebugConsole extends Console {
+  logs: string[] = [];
+  override log(message: string) {
+    this.logs.push(message);
+  }
+  override warn(message: string) {
+    this.logs.push(message);
+  }
+}
+
+/**
+ * Provides a debug console instance that allows to capture all
+ * produces messages for testing purposes.
+ */
+export function withDebugConsole() {
+  return [{provide: Console, useClass: DebugConsole}];
+}
+
 /**
  * Given a template, creates a component fixture and returns
  * a set of helper functions to trigger rendering of prefetching
@@ -137,7 +164,6 @@ async function verifyTimeline(
 function createFixture(template: string) {
   @Component({
     selector: 'nested-cmp',
-    standalone: true,
     template: '{{ block }}',
   })
   class NestedCmp {
@@ -145,7 +171,6 @@ function createFixture(template: string) {
   }
 
   @Component({
-    standalone: true,
     selector: 'simple-app',
     imports: [NestedCmp],
     template,
@@ -193,9 +218,17 @@ function createFixture(template: string) {
 
 // Set `PLATFORM_ID` to a browser platform value to trigger defer loading
 // while running tests in Node.
-const COMMON_PROVIDERS = [{provide: PLATFORM_ID, useValue: PLATFORM_BROWSER_ID}];
+const COMMON_PROVIDERS = [
+  {provide: PLATFORM_ID, useValue: PLATFORM_BROWSER_ID},
+  provideNgReflectAttributes(),
+];
 
 describe('@defer', () => {
+  beforeEach(() => {
+    TestBed.configureTestingModule({
+      providers: [provideZoneChangeDetection()],
+    });
+  });
   beforeEach(() => {
     TestBed.configureTestingModule({providers: COMMON_PROVIDERS});
   });
@@ -203,13 +236,11 @@ describe('@defer', () => {
   it('should transition between placeholder, loading and loaded states', async () => {
     @Component({
       selector: 'my-lazy-cmp',
-      standalone: true,
       template: 'Hi!',
     })
     class MyLazyCmp {}
 
     @Component({
-      standalone: true,
       selector: 'simple-app',
       imports: [MyLazyCmp],
       template: `
@@ -248,13 +279,11 @@ describe('@defer', () => {
   it('should work when only main block is present', async () => {
     @Component({
       selector: 'my-lazy-cmp',
-      standalone: true,
       template: 'Hi!',
     })
     class MyLazyCmp {}
 
     @Component({
-      standalone: true,
       selector: 'simple-app',
       imports: [MyLazyCmp],
       template: `
@@ -284,7 +313,7 @@ describe('@defer', () => {
   });
 
   it('should be able to use pipes injecting ChangeDetectorRef in defer blocks', async () => {
-    @Pipe({name: 'test', standalone: true})
+    @Pipe({name: 'test'})
     class TestPipe implements PipeTransform {
       changeDetectorRef = inject(ChangeDetectorRef);
 
@@ -294,9 +323,10 @@ describe('@defer', () => {
     }
 
     @Component({
-      standalone: true,
       imports: [TestPipe],
-      template: `@defer (when isVisible | test; prefetch when isVisible | test) {Hello}`,
+      template: `@defer (when isVisible | test; prefetch when isVisible | test) {
+        Hello
+      }`,
     })
     class MyCmp {
       isVisible = false;
@@ -312,7 +342,7 @@ describe('@defer', () => {
     await allPendingDynamicImports();
     fixture.detectChanges();
 
-    expect(fixture.nativeElement.textContent).toBe('Hello');
+    expect(fixture.nativeElement.textContent).toBe(' Hello ');
   });
 
   it('should preserve execution order of dependencies', async () => {
@@ -323,7 +353,6 @@ describe('@defer', () => {
     // code is wrapped using the `@defer` block.
     const logs: string[] = [];
     @Directive({
-      standalone: true,
       selector: '[dirA]',
     })
     class DirA {
@@ -333,7 +362,6 @@ describe('@defer', () => {
     }
 
     @Directive({
-      standalone: true,
       selector: '[dirB]',
     })
     class DirB {
@@ -343,7 +371,6 @@ describe('@defer', () => {
     }
 
     @Directive({
-      standalone: true,
       selector: '[dirC]',
     })
     class DirC {
@@ -353,7 +380,6 @@ describe('@defer', () => {
     }
 
     @Component({
-      standalone: true,
       // Directive order is intentional here (different from the order
       // in which they are defined on the host element).
       imports: [DirC, DirB, DirA],
@@ -387,7 +413,6 @@ describe('@defer', () => {
     it('should render when @defer is used inside of an OnPush component', async () => {
       @Component({
         selector: 'my-lazy-cmp',
-        standalone: true,
         template: '{{ foo }}',
       })
       class MyLazyCmp {
@@ -395,7 +420,6 @@ describe('@defer', () => {
       }
 
       @Component({
-        standalone: true,
         selector: 'simple-app',
         imports: [MyLazyCmp],
         changeDetection: ChangeDetectionStrategy.OnPush,
@@ -420,7 +444,6 @@ describe('@defer', () => {
     it('should render when @defer-loaded component uses OnPush', async () => {
       @Component({
         selector: 'my-lazy-cmp',
-        standalone: true,
         changeDetection: ChangeDetectionStrategy.OnPush,
         template: '{{ foo }}',
       })
@@ -429,7 +452,6 @@ describe('@defer', () => {
       }
 
       @Component({
-        standalone: true,
         selector: 'simple-app',
         imports: [MyLazyCmp],
         template: `
@@ -453,7 +475,6 @@ describe('@defer', () => {
     it('should render when both @defer-loaded and host component use OnPush', async () => {
       @Component({
         selector: 'my-lazy-cmp',
-        standalone: true,
         changeDetection: ChangeDetectionStrategy.OnPush,
         template: '{{ foo }}',
       })
@@ -462,7 +483,6 @@ describe('@defer', () => {
       }
 
       @Component({
-        standalone: true,
         selector: 'simple-app',
         imports: [MyLazyCmp],
         changeDetection: ChangeDetectionStrategy.OnPush,
@@ -487,7 +507,6 @@ describe('@defer', () => {
     it('should render when both OnPush components used in other blocks (e.g. @placeholder)', async () => {
       @Component({
         selector: 'my-lazy-cmp',
-        standalone: true,
         changeDetection: ChangeDetectionStrategy.OnPush,
         template: '{{ foo }}',
       })
@@ -497,7 +516,6 @@ describe('@defer', () => {
 
       @Component({
         selector: 'another-lazy-cmp',
-        standalone: true,
         changeDetection: ChangeDetectionStrategy.OnPush,
         template: '{{ foo }}',
       })
@@ -506,17 +524,16 @@ describe('@defer', () => {
       }
 
       @Component({
-        standalone: true,
         selector: 'simple-app',
         imports: [MyLazyCmp, AnotherLazyCmp],
         changeDetection: ChangeDetectionStrategy.OnPush,
         template: `
-              @defer (when isVisible) {
-                <my-lazy-cmp />
-              } @placeholder {
-                <another-lazy-cmp />
-              }
-            `,
+          @defer (when isVisible) {
+            <my-lazy-cmp />
+          } @placeholder {
+            <another-lazy-cmp />
+          }
+        `,
       })
       class MyCmp {
         isVisible = false;
@@ -546,11 +563,79 @@ describe('@defer', () => {
     });
   });
 
+  describe('with HMR', () => {
+    beforeEach(() => {
+      globalThis['ngHmrMode'] = true;
+    });
+
+    afterEach(() => {
+      globalThis['ngHmrMode'] = undefined;
+    });
+
+    it('should produce a message into a console about eagerly loaded deps', async () => {
+      @Component({
+        selector: 'simple-app',
+        template: `
+          @defer (when true) {
+            Defer block #1
+          }
+          @defer (on immediate) {
+            Defer block #2
+          }
+          @defer (when true) {
+            Defer block #3
+          }
+        `,
+      })
+      class MyCmp {}
+
+      TestBed.configureTestingModule({providers: [withDebugConsole()]});
+      const fixture = TestBed.createComponent(MyCmp);
+      fixture.detectChanges();
+
+      // Wait for all async actions to complete.
+      await allPendingDynamicImports();
+      fixture.detectChanges();
+
+      // Make sure that the HMR message is present in the console and there is
+      // only a single instance of a message.
+      const console = TestBed.inject(Console) as DebugConsole;
+      const errorCode = formatRuntimeErrorCode(RuntimeErrorCode.DEFER_IN_HMR_MODE);
+      const hmrMessages = console.logs.filter((log) => log.indexOf(errorCode) > -1);
+      expect(hmrMessages.length).withContext('HMR message should be present once').toBe(1);
+
+      const textContent = fixture.nativeElement.textContent;
+      expect(textContent).toContain('Defer block #1');
+      expect(textContent).toContain('Defer block #2');
+      expect(textContent).toContain('Defer block #3');
+    });
+
+    it('should not produce a message about eagerly loaded deps if no defer blocks are present', () => {
+      @Component({
+        selector: 'simple-app',
+        template: `No defer blocks`,
+      })
+      class MyCmp {}
+
+      TestBed.configureTestingModule({providers: [withDebugConsole()]});
+      const fixture = TestBed.createComponent(MyCmp);
+      fixture.detectChanges();
+
+      // Make sure that there were no HMR messages present in the console, because
+      // there were no defer blocks in a template.
+      const console = TestBed.inject(Console) as DebugConsole;
+      const errorCode = formatRuntimeErrorCode(RuntimeErrorCode.DEFER_IN_HMR_MODE);
+      const hmrMessages = console.logs.filter((log) => log.indexOf(errorCode) > -1);
+      expect(hmrMessages.length).withContext('HMR message should *not* be present').toBe(0);
+
+      expect(fixture.nativeElement.textContent).toContain('No defer blocks');
+    });
+  });
+
   describe('`on` conditions', () => {
     it('should support `on immediate` condition', async () => {
       @Component({
         selector: 'nested-cmp',
-        standalone: true,
         template: 'Rendering {{ block }} block.',
       })
       class NestedCmp {
@@ -558,7 +643,6 @@ describe('@defer', () => {
       }
 
       @Component({
-        standalone: true,
         selector: 'root-app',
         imports: [NestedCmp],
         template: `
@@ -617,13 +701,10 @@ describe('@defer', () => {
       // Expect that the loading resources function was not invoked again (counter remains 1).
       expect(loadingFnInvokedTimes).toBe(1);
     });
-  });
 
-  describe('directive matching', () => {
-    it('should support directive matching in all blocks', async () => {
+    it('should trigger change detection when `on idle` is fired without explicit fixture.detectChanges()', async () => {
       @Component({
         selector: 'nested-cmp',
-        standalone: true,
         template: 'Rendering {{ block }} block.',
       })
       class NestedCmp {
@@ -631,23 +712,104 @@ describe('@defer', () => {
       }
 
       @Component({
-        standalone: true,
+        selector: 'root-app',
+        imports: [NestedCmp],
+        template: `
+          @defer (on idle) {
+            <nested-cmp [block]="'primary'" />
+          } @placeholder {
+            Placeholder
+          } @loading {
+            Loading
+          }
+        `,
+      })
+      class RootCmp {}
+
+      let loadingFnInvokedTimes = 0;
+      const deferDepsInterceptor = {
+        intercept() {
+          return () => {
+            loadingFnInvokedTimes++;
+            return [dynamicImportOf(NestedCmp)];
+          };
+        },
+      };
+
+      const idleCallbacks: IdleRequestCallback[] = [];
+      const mockRequestIdleCallback = (
+        callback: IdleRequestCallback,
+        options?: IdleRequestOptions,
+      ): number => {
+        idleCallbacks.push(callback);
+        return 1;
+      };
+
+      const nativeRequestIdleCallback = globalThis.requestIdleCallback;
+      const nativeCancelIdleCallback = globalThis.cancelIdleCallback;
+      globalThis.requestIdleCallback = mockRequestIdleCallback;
+      globalThis.cancelIdleCallback = (id: number) => {};
+
+      try {
+        TestBed.configureTestingModule({
+          providers: [
+            ...COMMON_PROVIDERS,
+            {provide: ɵDEFER_BLOCK_DEPENDENCY_INTERCEPTOR, useValue: deferDepsInterceptor},
+          ],
+        });
+
+        clearDirectiveDefs(RootCmp);
+
+        const fixture = TestBed.createComponent(RootCmp);
+        fixture.detectChanges();
+
+        expect(fixture.nativeElement.outerHTML).toContain('Placeholder');
+        expect(loadingFnInvokedTimes).toBe(0);
+
+        // Trigger the idle callback
+        expect(idleCallbacks.length).toBe(1);
+        idleCallbacks[0]({timeRemaining: () => 50, didTimeout: false} as IdleDeadline);
+
+        // Ensure that loading function was called
+        expect(loadingFnInvokedTimes).toBe(1);
+
+        // The tick generated from the defer block state change inside the idle scheduler
+        // should have updated the view automatically, showing the loading block.
+        expect(fixture.nativeElement.outerHTML).toContain('Loading');
+      } finally {
+        globalThis.requestIdleCallback = nativeRequestIdleCallback;
+        globalThis.cancelIdleCallback = nativeCancelIdleCallback;
+      }
+    });
+  });
+
+  describe('directive matching', () => {
+    it('should support directive matching in all blocks', async () => {
+      @Component({
+        selector: 'nested-cmp',
+        template: 'Rendering {{ block }} block.',
+      })
+      class NestedCmp {
+        @Input() block!: string;
+      }
+
+      @Component({
         selector: 'simple-app',
         imports: [NestedCmp],
         template: `
-        @defer (when isVisible) {
-          <nested-cmp [block]="'primary'" />
-        } @loading {
-          Loading...
-          <nested-cmp [block]="'loading'" />
-        } @placeholder {
-          Placeholder!
-          <nested-cmp [block]="'placeholder'" />
-        } @error {
-          Failed to load dependencies :(
-          <nested-cmp [block]="'error'" />
-        }
-      `,
+          @defer (when isVisible) {
+            <nested-cmp [block]="'primary'" />
+          } @loading {
+            Loading...
+            <nested-cmp [block]="'loading'" />
+          } @placeholder {
+            Placeholder!
+            <nested-cmp [block]="'placeholder'" />
+          } @error {
+            Failed to load dependencies :(
+            <nested-cmp [block]="'error'" />
+          }
+        `,
       })
       class MyCmp {
         isVisible = false;
@@ -822,7 +984,6 @@ describe('@defer', () => {
     it('should render an error block when loading fails', async () => {
       @Component({
         selector: 'nested-cmp',
-        standalone: true,
         template: 'Rendering {{ block }} block.',
       })
       class NestedCmp {
@@ -830,7 +991,6 @@ describe('@defer', () => {
       }
 
       @Component({
-        standalone: true,
         selector: 'simple-app',
         imports: [NestedCmp],
         template: `
@@ -844,7 +1004,7 @@ describe('@defer', () => {
             Failed to load dependencies :(
             <nested-cmp [block]="'error'" />
           }
-          `,
+        `,
       })
       class MyCmp {
         isVisible = false;
@@ -858,6 +1018,7 @@ describe('@defer', () => {
       };
 
       TestBed.configureTestingModule({
+        rethrowApplicationErrors: false,
         providers: [{provide: ɵDEFER_BLOCK_DEPENDENCY_INTERCEPTOR, useValue: deferDepsInterceptor}],
       });
 
@@ -889,13 +1050,11 @@ describe('@defer', () => {
     it('should report an error to the ErrorHandler if no `@error` block is defined', async () => {
       @Component({
         selector: 'nested-cmp',
-        standalone: true,
         template: 'NestedCmp',
       })
       class NestedCmp {}
 
       @Component({
-        standalone: true,
         selector: 'simple-app',
         imports: [NestedCmp],
         template: `
@@ -920,6 +1079,7 @@ describe('@defer', () => {
 
       const reportedErrors: Error[] = [];
       TestBed.configureTestingModule({
+        rethrowApplicationErrors: false,
         providers: [
           {
             provide: ɵDEFER_BLOCK_DEPENDENCY_INTERCEPTOR,
@@ -959,7 +1119,6 @@ describe('@defer', () => {
     it('should not render `@error` block if loaded component has errors', async () => {
       @Component({
         selector: 'cmp-with-error',
-        standalone: true,
         template: 'CmpWithError',
       })
       class CmpWithError {
@@ -969,7 +1128,6 @@ describe('@defer', () => {
       }
 
       @Component({
-        standalone: true,
         selector: 'simple-app',
         imports: [CmpWithError],
         template: `
@@ -996,6 +1154,7 @@ describe('@defer', () => {
 
       const reportedErrors: Error[] = [];
       TestBed.configureTestingModule({
+        rethrowApplicationErrors: false,
         providers: [
           {
             provide: ɵDEFER_BLOCK_DEPENDENCY_INTERCEPTOR,
@@ -1045,7 +1204,6 @@ describe('@defer', () => {
         it(`should log an error in the handler when there is no error block with devMode:${devMode}`, async () => {
           @Component({
             selector: 'nested-cmp',
-            standalone: true,
             template: 'Rendering {{ block }} block.',
           })
           class NestedCmp {
@@ -1053,18 +1211,17 @@ describe('@defer', () => {
           }
 
           @Component({
-            standalone: true,
             selector: 'simple-app',
             imports: [NestedCmp],
             template: `
-          @defer (when isVisible) {
-            <nested-cmp [block]="'primary'" />
-          } @loading {
-            Loading...
-          } @placeholder {
-            Placeholder!
-          }
-          `,
+              @defer (when isVisible) {
+                <nested-cmp [block]="'primary'" />
+              } @loading {
+                Loading...
+              } @placeholder {
+                Placeholder!
+              }
+            `,
           })
           class MyCmp {
             isVisible = false;
@@ -1086,6 +1243,7 @@ describe('@defer', () => {
           }
 
           TestBed.configureTestingModule({
+            rethrowApplicationErrors: false,
             providers: [
               {provide: ɵDEFER_BLOCK_DEPENDENCY_INTERCEPTOR, useValue: deferDepsInterceptor},
               {
@@ -1126,7 +1284,6 @@ describe('@defer', () => {
     it('should query for components within each block', async () => {
       @Component({
         selector: 'nested-cmp',
-        standalone: true,
         template: 'Rendering {{ block }} block.',
       })
       class NestedCmp {
@@ -1134,7 +1291,6 @@ describe('@defer', () => {
       }
 
       @Component({
-        standalone: true,
         selector: 'simple-app',
         imports: [NestedCmp],
         template: `
@@ -1192,21 +1348,18 @@ describe('@defer', () => {
     it('should be able to project content into each block', async () => {
       @Component({
         selector: 'cmp-a',
-        standalone: true,
         template: 'CmpA',
       })
       class CmpA {}
 
       @Component({
         selector: 'cmp-b',
-        standalone: true,
         template: 'CmpB',
       })
       class CmpB {}
 
       @Component({
         selector: 'nested-cmp',
-        standalone: true,
         template: 'Rendering {{ block }} block.',
       })
       class NestedCmp {
@@ -1214,7 +1367,6 @@ describe('@defer', () => {
       }
 
       @Component({
-        standalone: true,
         selector: 'my-app',
         imports: [NestedCmp],
         template: `
@@ -1238,7 +1390,6 @@ describe('@defer', () => {
       }
 
       @Component({
-        standalone: true,
         selector: 'root-app',
         imports: [MyCmp, CmpA, CmpB],
         template: `
@@ -1303,14 +1454,12 @@ describe('@defer', () => {
     it('should be able to have nested blocks', async () => {
       @Component({
         selector: 'cmp-a',
-        standalone: true,
         template: 'CmpA',
       })
       class CmpA {}
 
       @Component({
         selector: 'nested-cmp',
-        standalone: true,
         template: 'Rendering {{ block }} block.',
       })
       class NestedCmp {
@@ -1318,7 +1467,6 @@ describe('@defer', () => {
       }
 
       @Component({
-        standalone: true,
         selector: 'root-app',
         imports: [NestedCmp, CmpA],
         template: `
@@ -1377,13 +1525,11 @@ describe('@defer', () => {
     it('should handle nested blocks that defer load the same dep', async () => {
       @Component({
         selector: 'cmp-a',
-        standalone: true,
         template: 'CmpA',
       })
       class CmpA {}
 
       @Component({
-        standalone: true,
         selector: 'root-app',
         imports: [CmpA],
         template: `
@@ -1432,17 +1578,31 @@ describe('@defer', () => {
      * Sets up interceptors for when an idle callback is requested
      * and when it's cancelled. This is needed to keep track of calls
      * made to `requestIdleCallback` and `cancelIdleCallback` APIs.
+     *
+     * The mock enforces the per-bucket invariant: for a given timeout
+     * value, at most ONE `requestIdleCallback` should be active at a
+     * time. Different timeout values (buckets) may run concurrently.
      */
     let id = 0;
     let idleCallbacksRequested: number;
     let idleCallbacksInvoked: number;
     let idleCallbacksCancelled: number;
     const onIdleCallbackQueue: Map<number, IdleRequestCallback> = new Map();
+    let capturedOptions: IdleRequestOptions | undefined;
+
+    // Tracks active idle callback counts per serialized options key, enforcing
+    // that each bucket never has more than one concurrent request.
+    const activePerTimeout = new Map<string, number>();
+    // Reverse lookup: callback id → options key (for cleanup in cancel).
+    const idToTimeout = new Map<number, string>();
 
     function resetCounters() {
       idleCallbacksRequested = 0;
       idleCallbacksInvoked = 0;
       idleCallbacksCancelled = 0;
+      capturedOptions = undefined;
+      activePerTimeout.clear();
+      idToTimeout.clear();
     }
     resetCounters();
 
@@ -1456,15 +1616,38 @@ describe('@defer', () => {
       callback: IdleRequestCallback,
       options?: IdleRequestOptions,
     ): number => {
+      capturedOptions = options;
       onIdleCallbackQueue.set(id, callback);
-      expect(idleCallbacksRequested).toBe(0);
       expect(NgZone.isInAngularZone()).toBe(true);
+
+      // Enforce per-bucket invariant: a given options key must not
+      // already have an active requestIdleCallback.
+      const timeoutKey = options?.timeout != null ? `${options.timeout}` : '';
+      const activeCount = activePerTimeout.get(timeoutKey) ?? 0;
+      expect(activeCount)
+        .withContext(
+          `Expected 0 active idle callbacks for key='${timeoutKey}', ` +
+            `but found ${activeCount}. Each options bucket should have at most one.`,
+        )
+        .toBe(0);
+      activePerTimeout.set(timeoutKey, activeCount + 1);
+      idToTimeout.set(id, timeoutKey);
+
       idleCallbacksRequested++;
       return id++;
     };
 
     const mockCancelIdleCallback = (id: number) => {
       onIdleCallbackQueue.delete(id);
+
+      // Decrement per-bucket active count.
+      const timeoutKey = idToTimeout.get(id);
+      if (timeoutKey !== undefined) {
+        const count = activePerTimeout.get(timeoutKey) ?? 0;
+        activePerTimeout.set(timeoutKey, Math.max(0, count - 1));
+        idToTimeout.delete(id);
+      }
+
       idleCallbacksRequested--;
       idleCallbacksCancelled++;
     };
@@ -1495,7 +1678,6 @@ describe('@defer', () => {
     it('should be able to prefetch resources', async () => {
       @Component({
         selector: 'nested-cmp',
-        standalone: true,
         template: 'Rendering {{ block }} block.',
       })
       class NestedCmp {
@@ -1503,7 +1685,6 @@ describe('@defer', () => {
       }
 
       @Component({
-        standalone: true,
         selector: 'root-app',
         imports: [NestedCmp],
         template: `
@@ -1576,7 +1757,6 @@ describe('@defer', () => {
     it('should handle a case when prefetching fails', async () => {
       @Component({
         selector: 'nested-cmp',
-        standalone: true,
         template: 'Rendering {{ block }} block.',
       })
       class NestedCmp {
@@ -1584,7 +1764,6 @@ describe('@defer', () => {
       }
 
       @Component({
-        standalone: true,
         selector: 'root-app',
         imports: [NestedCmp],
         template: `
@@ -1656,7 +1835,6 @@ describe('@defer', () => {
     it('should work when loading and prefetching were kicked off at the same time', async () => {
       @Component({
         selector: 'nested-cmp',
-        standalone: true,
         template: 'Rendering {{ block }} block.',
       })
       class NestedCmp {
@@ -1664,7 +1842,6 @@ describe('@defer', () => {
       }
 
       @Component({
-        standalone: true,
         selector: 'root-app',
         imports: [NestedCmp],
         template: `
@@ -1724,7 +1901,6 @@ describe('@defer', () => {
     it('should support `prefetch on idle` condition', async () => {
       @Component({
         selector: 'nested-cmp',
-        standalone: true,
         template: 'Rendering {{ block }} block.',
       })
       class NestedCmp {
@@ -1732,7 +1908,6 @@ describe('@defer', () => {
       }
 
       @Component({
-        standalone: true,
         selector: 'root-app',
         imports: [NestedCmp],
         template: `
@@ -1757,8 +1932,34 @@ describe('@defer', () => {
         },
       };
 
+      @Injectable({providedIn: 'root'})
+      class CustomIdleService implements IdleService {
+        private callbacks: Array<((deadline?: IdleDeadline) => void) | undefined> = [];
+
+        requestOnIdle(
+          callback: (deadline?: IdleDeadline) => void,
+          options?: IdleRequestOptions,
+        ): number {
+          return this.callbacks.push(callback) - 1;
+        }
+
+        cancelOnIdle(id: number): void {
+          this.callbacks[id] = undefined;
+        }
+
+        trigger(): void {
+          for (const callback of this.callbacks) {
+            callback?.();
+          }
+          this.callbacks.length = 0;
+        }
+      }
+
       TestBed.configureTestingModule({
-        providers: [{provide: ɵDEFER_BLOCK_DEPENDENCY_INTERCEPTOR, useValue: deferDepsInterceptor}],
+        providers: [
+          {provide: ɵDEFER_BLOCK_DEPENDENCY_INTERCEPTOR, useValue: deferDepsInterceptor},
+          provideIdleServiceWith(CustomIdleService),
+        ],
       });
 
       clearDirectiveDefs(RootCmp);
@@ -1771,7 +1972,7 @@ describe('@defer', () => {
       // Make sure loading function is not yet invoked.
       expect(loadingFnInvokedTimes).toBe(0);
 
-      triggerIdleCallbacks();
+      TestBed.inject(CustomIdleService).trigger();
       await allPendingDynamicImports();
       fixture.detectChanges();
 
@@ -1801,7 +2002,6 @@ describe('@defer', () => {
     it('should trigger prefetching based on `on idle` only once', async () => {
       @Component({
         selector: 'nested-cmp',
-        standalone: true,
         template: 'Rendering {{ block }} block.',
       })
       class NestedCmp {
@@ -1809,7 +2009,6 @@ describe('@defer', () => {
       }
 
       @Component({
-        standalone: true,
         selector: 'root-app',
         imports: [NestedCmp],
         template: `
@@ -1879,10 +2078,9 @@ describe('@defer', () => {
       expect(loadingFnInvokedTimes).toBe(1);
     });
 
-    it('should trigger fetching based on `on idle` only once', async () => {
+    it('should trigger prefetching based on `on idle(<timeout>)` with timeout only once', async () => {
       @Component({
         selector: 'nested-cmp',
-        standalone: true,
         template: 'Rendering {{ block }} block.',
       })
       class NestedCmp {
@@ -1890,7 +2088,180 @@ describe('@defer', () => {
       }
 
       @Component({
-        standalone: true,
+        selector: 'root-app',
+        imports: [NestedCmp],
+        template: `
+          @for (item of items; track item) {
+            @defer (when deferCond; prefetch on idle(1500)) {
+              <nested-cmp [block]="'primary for \`' + item + '\` with timeout'" />
+            } @placeholder {
+              Placeholder with timeout \`{{ item }}\`
+            }
+          }
+        `,
+      })
+      class RootCmp {
+        deferCond = false;
+        items = ['x', 'y', 'z'];
+      }
+
+      let loadingFnInvokedTimes = 0;
+      const deferDepsInterceptor = {
+        intercept() {
+          return () => {
+            loadingFnInvokedTimes++;
+            return [dynamicImportOf(NestedCmp)];
+          };
+        },
+      };
+
+      TestBed.configureTestingModule({
+        providers: [{provide: ɵDEFER_BLOCK_DEPENDENCY_INTERCEPTOR, useValue: deferDepsInterceptor}],
+      });
+
+      clearDirectiveDefs(RootCmp);
+
+      const fixture = TestBed.createComponent(RootCmp);
+      fixture.detectChanges();
+
+      expect(fixture.nativeElement.outerHTML).toContain('Placeholder with timeout `x`');
+      expect(fixture.nativeElement.outerHTML).toContain('Placeholder with timeout `y`');
+      expect(fixture.nativeElement.outerHTML).toContain('Placeholder with timeout `z`');
+
+      // Verify that requestIdleCallback was called with timeout for prefetch
+      expect(idleCallbacksRequested).toBe(1);
+      expect(capturedOptions).toBeDefined();
+      expect(capturedOptions!.timeout).toBe(1500);
+
+      // Make sure loading function is not yet invoked.
+      expect(loadingFnInvokedTimes).toBe(0);
+
+      triggerIdleCallbacks();
+      await allPendingDynamicImports();
+      fixture.detectChanges();
+
+      // Expect that the loading resources function was invoked once for prefetch.
+      expect(loadingFnInvokedTimes).toBe(1);
+
+      // Expect that placeholder content is still rendered after prefetch.
+      expect(fixture.nativeElement.outerHTML).toContain('Placeholder with timeout `x`');
+
+      // Trigger main content.
+      fixture.componentInstance.deferCond = true;
+      fixture.detectChanges();
+
+      await allPendingDynamicImports();
+      fixture.detectChanges();
+
+      // Verify primary blocks content with prefetched resources.
+      expect(fixture.nativeElement.outerHTML).toContain(
+        'Rendering primary for `x` with timeout block',
+      );
+      expect(fixture.nativeElement.outerHTML).toContain(
+        'Rendering primary for `y` with timeout block',
+      );
+      expect(fixture.nativeElement.outerHTML).toContain(
+        'Rendering primary for `z` with timeout block',
+      );
+
+      // Expect that the loading resources function was not invoked again (counter remains 1).
+      expect(loadingFnInvokedTimes).toBe(1);
+    });
+
+    it('should support mixed prefetch triggers with and without timeout', async () => {
+      @Component({
+        selector: 'nested-cmp',
+        template: 'Rendering {{ block }} block.',
+      })
+      class NestedCmp {
+        @Input() block!: string;
+      }
+
+      @Component({
+        selector: 'root-app',
+        imports: [NestedCmp],
+        template: `
+          @defer (when loadFirst; prefetch on idle) {
+            <nested-cmp [block]="'no-timeout'" />
+          } @placeholder {
+            No Timeout Placeholder
+          }
+
+          @defer (when loadSecond; prefetch on idle(3000)) {
+            <nested-cmp [block]="'with-timeout'" />
+          } @placeholder {
+            With Timeout Placeholder
+          }
+        `,
+      })
+      class RootCmp {
+        loadFirst = false;
+        loadSecond = false;
+      }
+
+      let loadingFnInvokedTimes = 0;
+      const deferDepsInterceptor = {
+        intercept() {
+          return () => {
+            loadingFnInvokedTimes++;
+            return [dynamicImportOf(NestedCmp)];
+          };
+        },
+      };
+
+      TestBed.configureTestingModule({
+        providers: [{provide: ɵDEFER_BLOCK_DEPENDENCY_INTERCEPTOR, useValue: deferDepsInterceptor}],
+      });
+
+      clearDirectiveDefs(RootCmp);
+
+      const fixture = TestBed.createComponent(RootCmp);
+      fixture.detectChanges();
+
+      expect(fixture.nativeElement.outerHTML).toContain('No Timeout Placeholder');
+      expect(fixture.nativeElement.outerHTML).toContain('With Timeout Placeholder');
+
+      // Verify that idle callbacks were requested (one bucket per distinct timeout)
+      expect(idleCallbacksRequested).toBe(2);
+
+      // Make sure loading function is not yet invoked.
+      expect(loadingFnInvokedTimes).toBe(0);
+
+      triggerIdleCallbacks();
+      await allPendingDynamicImports();
+      fixture.detectChanges();
+
+      // Expect that invoked onIdle trigger for prefetching both blocks
+      expect(loadingFnInvokedTimes).toBe(2);
+
+      // Both placeholders should still be visible after prefetch
+      expect(fixture.nativeElement.outerHTML).toContain('No Timeout Placeholder');
+      expect(fixture.nativeElement.outerHTML).toContain('With Timeout Placeholder');
+
+      // Trigger first block
+      fixture.componentInstance.loadFirst = true;
+      fixture.detectChanges();
+
+      await allPendingDynamicImports();
+      fixture.detectChanges();
+
+      // Verify first block is rendered
+      expect(fixture.nativeElement.outerHTML).toContain(
+        '<nested-cmp ng-reflect-block="no-timeout">Rendering no-timeout block.</nested-cmp>',
+      );
+      expect(fixture.nativeElement.outerHTML).toContain('With Timeout Placeholder');
+    });
+
+    it('should trigger fetching based on `on idle` only once', async () => {
+      @Component({
+        selector: 'nested-cmp',
+        template: 'Rendering {{ block }} block.',
+      })
+      class NestedCmp {
+        @Input() block!: string;
+      }
+
+      @Component({
         selector: 'root-app',
         imports: [NestedCmp],
         template: `
@@ -1949,10 +2320,9 @@ describe('@defer', () => {
       expect(loadingFnInvokedTimes).toBe(1);
     });
 
-    it('should support `prefetch on immediate` condition', async () => {
+    it('should support `prefetch on idle(3000)` condition with timeout', async () => {
       @Component({
         selector: 'nested-cmp',
-        standalone: true,
         template: 'Rendering {{ block }} block.',
       })
       class NestedCmp {
@@ -1960,7 +2330,85 @@ describe('@defer', () => {
       }
 
       @Component({
-        standalone: true,
+        selector: 'root-app',
+        imports: [NestedCmp],
+        template: `
+          @defer (when deferCond; prefetch on idle(3000)) {
+            <nested-cmp [block]="'prefetched-with-timeout'" />
+          } @placeholder {
+            Placeholder for prefetch idle timeout test
+          }
+        `,
+      })
+      class RootCmp {
+        deferCond = false;
+      }
+
+      let loadingFnInvokedTimes = 0;
+      const deferDepsInterceptor = {
+        intercept() {
+          return () => {
+            loadingFnInvokedTimes++;
+            return [dynamicImportOf(NestedCmp)];
+          };
+        },
+      };
+
+      TestBed.configureTestingModule({
+        providers: [{provide: ɵDEFER_BLOCK_DEPENDENCY_INTERCEPTOR, useValue: deferDepsInterceptor}],
+      });
+
+      clearDirectiveDefs(RootCmp);
+
+      const fixture = TestBed.createComponent(RootCmp);
+      fixture.detectChanges();
+
+      expect(fixture.nativeElement.outerHTML).toContain(
+        'Placeholder for prefetch idle timeout test',
+      );
+
+      // Make sure loading function is not yet invoked.
+      expect(loadingFnInvokedTimes).toBe(0);
+
+      triggerIdleCallbacks();
+      await allPendingDynamicImports();
+      fixture.detectChanges();
+
+      // Expect that the loading resources function was invoked once (prefetch).
+      expect(loadingFnInvokedTimes).toBe(1);
+
+      // Expect that placeholder content is still rendered after prefetch.
+      expect(fixture.nativeElement.outerHTML).toContain(
+        'Placeholder for prefetch idle timeout test',
+      );
+
+      // Trigger main content.
+      fixture.componentInstance.deferCond = true;
+      fixture.detectChanges();
+
+      await allPendingDynamicImports();
+      fixture.detectChanges();
+
+      // Verify primary block content with prefetched resources.
+      const primaryBlockHTML = fixture.nativeElement.outerHTML;
+      expect(primaryBlockHTML).toContain(
+        '<nested-cmp ng-reflect-block="prefetched-with-timeout">Rendering prefetched-with-timeout block.</nested-cmp>',
+      );
+
+      // Expect that the loading resources function was not invoked again (counter remains 1).
+      expect(loadingFnInvokedTimes).toBe(1);
+    });
+
+    it('should support `prefetch on immediate` condition', async () => {
+      @Component({
+        selector: 'nested-cmp',
+        template: 'Rendering {{ block }} block.',
+      })
+      class NestedCmp {
+        @Input() block!: string;
+      }
+
+      @Component({
         selector: 'root-app',
         imports: [NestedCmp],
         template: `
@@ -2031,7 +2479,6 @@ describe('@defer', () => {
     it('should delay nested defer blocks with `on idle` triggers', async () => {
       @Component({
         selector: 'nested-cmp',
-        standalone: true,
         template: 'Primary block content.',
       })
       class NestedCmp {
@@ -2040,13 +2487,11 @@ describe('@defer', () => {
 
       @Component({
         selector: 'another-nested-cmp',
-        standalone: true,
         template: 'Nested block component.',
       })
       class AnotherNestedCmp {}
 
       @Component({
-        standalone: true,
         selector: 'root-app',
         imports: [NestedCmp, AnotherNestedCmp],
         template: `
@@ -2064,7 +2509,6 @@ describe('@defer', () => {
             } @loading {
               Nested block loading
             }
-
           } @placeholder {
             Root block placeholder
           }
@@ -2129,7 +2573,6 @@ describe('@defer', () => {
     it('should not request idle callback for each block in a for loop', async () => {
       @Component({
         selector: 'nested-cmp',
-        standalone: true,
         template: 'Rendering {{ block }} block.',
       })
       class NestedCmp {
@@ -2137,7 +2580,6 @@ describe('@defer', () => {
       }
 
       @Component({
-        standalone: true,
         selector: 'root-app',
         imports: [NestedCmp],
         template: `
@@ -2197,106 +2639,8 @@ describe('@defer', () => {
       expect(loadingFnInvokedTimes).toBe(1);
     });
 
-    it('should delay nested defer blocks with `on idle` triggers', async () => {
-      @Component({
-        selector: 'nested-cmp',
-        standalone: true,
-        template: 'Primary block content.',
-      })
-      class NestedCmp {
-        @Input() block!: string;
-      }
-
-      @Component({
-        selector: 'another-nested-cmp',
-        standalone: true,
-        template: 'Nested block component.',
-      })
-      class AnotherNestedCmp {}
-
-      @Component({
-        standalone: true,
-        selector: 'root-app',
-        imports: [NestedCmp, AnotherNestedCmp],
-        template: `
-          @defer (on idle; prefetch on idle) {
-            <nested-cmp [block]="'primary for \`' + item + '\`'" />
-            <!--
-              Expecting that nested defer block would be initialized
-              in a subsequent "requestIdleCallback" call.
-            -->
-            @defer (on idle) {
-              <another-nested-cmp />
-            } @placeholder {
-              Nested block placeholder
-            } @loading {
-              Nested block loading
-            }
-
-          } @placeholder {
-            Root block placeholder
-          }
-        `,
-      })
-      class RootCmp {}
-
-      let loadingFnInvokedTimes = 0;
-      const deferDepsInterceptor = {
-        intercept() {
-          return () => {
-            loadingFnInvokedTimes++;
-            const nextDeferredComponent =
-              loadingFnInvokedTimes === 1 ? NestedCmp : AnotherNestedCmp;
-            return [dynamicImportOf(nextDeferredComponent)];
-          };
-        },
-      };
-
-      TestBed.configureTestingModule({
-        providers: [{provide: ɵDEFER_BLOCK_DEPENDENCY_INTERCEPTOR, useValue: deferDepsInterceptor}],
-      });
-
-      clearDirectiveDefs(RootCmp);
-
-      const fixture = TestBed.createComponent(RootCmp);
-      fixture.detectChanges();
-
-      expect(fixture.nativeElement.outerHTML).toContain('Root block placeholder');
-
-      // Make sure loading function is not yet invoked.
-      expect(loadingFnInvokedTimes).toBe(0);
-
-      // Trigger all scheduled callbacks and await all mocked dynamic imports.
-      triggerIdleCallbacks();
-      await allPendingDynamicImports();
-      fixture.detectChanges();
-
-      // Expect that the loading resources function was invoked once.
-      expect(loadingFnInvokedTimes).toBe(1);
-
-      // Verify primary blocks content.
-      expect(fixture.nativeElement.outerHTML).toContain('Primary block content');
-
-      // Verify that nested defer block is in a placeholder mode.
-      expect(fixture.nativeElement.outerHTML).toContain('Nested block placeholder');
-
-      // Expect that the loading resources function was not invoked again (counter remains 1).
-      expect(loadingFnInvokedTimes).toBe(1);
-
-      triggerIdleCallbacks();
-      await allPendingDynamicImports();
-      fixture.detectChanges();
-
-      // Verify that nested defer block now renders the main content.
-      expect(fixture.nativeElement.outerHTML).toContain('Nested block component');
-
-      // We loaded a nested block dependency, expect counter to be 2.
-      expect(loadingFnInvokedTimes).toBe(2);
-    });
-
     it('should clear idle handlers when defer block is triggered', async () => {
       @Component({
-        standalone: true,
         selector: 'root-app',
         template: `
           @defer (when isVisible; on idle; prefetch on idle) {
@@ -2307,8 +2651,6 @@ describe('@defer', () => {
       class RootCmp {
         isVisible = false;
       }
-
-      TestBed.configureTestingModule({});
 
       clearDirectiveDefs(RootCmp);
 
@@ -2339,22 +2681,21 @@ describe('@defer', () => {
   describe('trigger resolution', () => {
     it('should resolve a trigger is outside the defer block', fakeAsync(() => {
       @Component({
-        standalone: true,
         template: `
-            @defer (on interaction(trigger)) {
-              Main content
-            } @placeholder {
-              Placeholder
-            }
+          @defer (on interaction(trigger)) {
+            Main content
+          } @placeholder {
+            Placeholder
+          }
 
+          <div>
             <div>
               <div>
-                <div>
-                  <button #trigger></button>
-                </div>
+                <button #trigger></button>
+              </div>
             </div>
           </div>
-          `,
+        `,
       })
       class MyCmp {}
 
@@ -2369,27 +2710,26 @@ describe('@defer', () => {
     }));
 
     it('should resolve a trigger on a component outside the defer block', fakeAsync(() => {
-      @Component({selector: 'some-comp', template: '<button></button>', standalone: true})
+      @Component({selector: 'some-comp', template: '<button></button>'})
       class SomeComp {}
 
       @Component({
-        standalone: true,
         imports: [SomeComp],
         template: `
-            @defer (on interaction(trigger)) {
-              Main content
-            } @placeholder {
-              Placeholder
-            }
+          @defer (on interaction(trigger)) {
+            Main content
+          } @placeholder {
+            Placeholder
+          }
 
+          <div>
             <div>
               <div>
-                <div>
-                  <some-comp #trigger/>
-                </div>
+                <some-comp #trigger />
               </div>
             </div>
-          `,
+          </div>
+        `,
       })
       class MyCmp {}
 
@@ -2405,20 +2745,19 @@ describe('@defer', () => {
 
     it('should resolve a trigger that is on a parent element', fakeAsync(() => {
       @Component({
-        standalone: true,
         template: `
-            <button #trigger>
+          <button #trigger>
+            <div>
               <div>
-                <div>
                 @defer (on interaction(trigger)) {
                   Main content
                 } @placeholder {
                   Placeholder
                 }
-                </div>
               </div>
-            </button>
-          `,
+            </div>
+          </button>
+        `,
       })
       class MyCmp {}
 
@@ -2434,22 +2773,21 @@ describe('@defer', () => {
 
     it('should resolve a trigger that is inside a parent embedded view', fakeAsync(() => {
       @Component({
-        standalone: true,
         template: `
-            @if (cond) {
-              <button #trigger></button>
+          @if (cond) {
+            <button #trigger></button>
 
+            @if (cond) {
               @if (cond) {
-                @if (cond) {
-                  @defer (on interaction(trigger)) {
-                    Main content
-                  } @placeholder {
-                    Placeholder
-                  }
+                @defer (on interaction(trigger)) {
+                  Main content
+                } @placeholder {
+                  Placeholder
                 }
               }
             }
-          `,
+          }
+        `,
       })
       class MyCmp {
         cond = true;
@@ -2466,27 +2804,26 @@ describe('@defer', () => {
     }));
 
     it('should resolve a trigger that is on a component in a parent embedded view', fakeAsync(() => {
-      @Component({selector: 'some-comp', template: '<button></button>', standalone: true})
+      @Component({selector: 'some-comp', template: '<button></button>'})
       class SomeComp {}
 
       @Component({
-        standalone: true,
         imports: [SomeComp],
         template: `
-              @if (cond) {
-                <some-comp #trigger/>
+          @if (cond) {
+            <some-comp #trigger />
 
-                @if (cond) {
-                  @if (cond) {
-                    @defer (on interaction(trigger)) {
-                      Main content
-                    } @placeholder {
-                      Placeholder
-                    }
-                  }
+            @if (cond) {
+              @if (cond) {
+                @defer (on interaction(trigger)) {
+                  Main content
+                } @placeholder {
+                  Placeholder
                 }
               }
-            `,
+            }
+          }
+        `,
       })
       class MyCmp {
         cond = true;
@@ -2504,14 +2841,18 @@ describe('@defer', () => {
 
     it('should resolve a trigger that is inside the placeholder', fakeAsync(() => {
       @Component({
-        standalone: true,
         template: `
-              @defer (on interaction(trigger)) {
-                Main content
-              } @placeholder {
-                Placeholder <div><div><div><button #trigger></button></div></div></div>
-              }
-            `,
+          @defer (on interaction(trigger)) {
+            Main content
+          } @placeholder {
+            Placeholder
+            <div>
+              <div>
+                <div><button #trigger></button></div>
+              </div>
+            </div>
+          }
+        `,
       })
       class MyCmp {}
 
@@ -2526,19 +2867,23 @@ describe('@defer', () => {
     }));
 
     it('should resolve a trigger that is a component inside the placeholder', fakeAsync(() => {
-      @Component({selector: 'some-comp', template: '<button></button>', standalone: true})
+      @Component({selector: 'some-comp', template: '<button></button>'})
       class SomeComp {}
 
       @Component({
-        standalone: true,
         imports: [SomeComp],
         template: `
-              @defer (on interaction(trigger)) {
-                Main content
-              } @placeholder {
-                Placeholder <div><div><div><some-comp #trigger/></div></div></div>
-              }
-            `,
+          @defer (on interaction(trigger)) {
+            Main content
+          } @placeholder {
+            Placeholder
+            <div>
+              <div>
+                <div><some-comp #trigger /></div>
+              </div>
+            </div>
+          }
+        `,
       })
       class MyCmp {}
 
@@ -2556,16 +2901,15 @@ describe('@defer', () => {
   describe('interaction triggers', () => {
     it('should load the deferred content when the trigger is clicked', fakeAsync(() => {
       @Component({
-        standalone: true,
         template: `
-              @defer (on interaction(trigger)) {
-                Main content
-              } @placeholder {
-                Placeholder
-              }
+          @defer (on interaction(trigger)) {
+            Main content
+          } @placeholder {
+            Placeholder
+          }
 
-              <button #trigger></button>
-            `,
+          <button #trigger></button>
+        `,
       })
       class MyCmp {}
 
@@ -2586,16 +2930,15 @@ describe('@defer', () => {
       }
 
       @Component({
-        standalone: true,
         template: `
-              @defer (on interaction(trigger)) {
-                Main content
-              } @placeholder {
-                Placeholder
-              }
+          @defer (on interaction(trigger)) {
+            Main content
+          } @placeholder {
+            Placeholder
+          }
 
-              <button #trigger></button>
-            `,
+          <button #trigger></button>
+        `,
       })
       class MyCmp {}
 
@@ -2612,14 +2955,13 @@ describe('@defer', () => {
 
     it('should load the deferred content when an implicit trigger is clicked', fakeAsync(() => {
       @Component({
-        standalone: true,
         template: `
-             @defer (on interaction) {
-               Main content
-             } @placeholder {
-               <button>Placeholder</button>
-             }
-           `,
+          @defer (on interaction) {
+            Main content
+          } @placeholder {
+            <button>Placeholder</button>
+          }
+        `,
       })
       class MyCmp {}
 
@@ -2636,20 +2978,19 @@ describe('@defer', () => {
 
     it('should load the deferred content if a child of the trigger is clicked', fakeAsync(() => {
       @Component({
-        standalone: true,
         template: `
-              @defer (on interaction(trigger)) {
-                Main content
-              } @placeholder {
-                Placeholder
-              }
+          @defer (on interaction(trigger)) {
+            Main content
+          } @placeholder {
+            Placeholder
+          }
 
-             <div #trigger>
-               <div>
-                <button></button>
-               </div>
-             </div>
-           `,
+          <div #trigger>
+            <div>
+              <button></button>
+            </div>
+          </div>
+        `,
       })
       class MyCmp {}
 
@@ -2665,22 +3006,21 @@ describe('@defer', () => {
 
     it('should support multiple deferred blocks with the same trigger', fakeAsync(() => {
       @Component({
-        standalone: true,
         template: `
-             @defer (on interaction(trigger)) {
-              Main content 1
-             } @placeholder {
-              Placeholder 1
-             }
+          @defer (on interaction(trigger)) {
+            Main content 1
+          } @placeholder {
+            Placeholder 1
+          }
 
-             @defer (on interaction(trigger)) {
-              Main content 2
-             } @placeholder {
-              Placeholder 2
-             }
+          @defer (on interaction(trigger)) {
+            Main content 2
+          } @placeholder {
+            Placeholder 2
+          }
 
-             <button #trigger></button>
-           `,
+          <button #trigger></button>
+        `,
       })
       class MyCmp {}
 
@@ -2696,11 +3036,12 @@ describe('@defer', () => {
 
     it('should unbind the trigger events when the deferred block is loaded', fakeAsync(() => {
       @Component({
-        standalone: true,
         template: `
-             @defer (on interaction(trigger)) {Main content}
-             <button #trigger></button>
-           `,
+          @defer (on interaction(trigger)) {
+            Main content
+          }
+          <button #trigger></button>
+        `,
       })
       class MyCmp {}
 
@@ -2721,13 +3062,14 @@ describe('@defer', () => {
 
     it('should unbind the trigger events when the trigger is destroyed', fakeAsync(() => {
       @Component({
-        standalone: true,
         template: `
-            @if (renderBlock) {
-              @defer (on interaction(trigger)) {Main content}
-              <button #trigger></button>
+          @if (renderBlock) {
+            @defer (on interaction(trigger)) {
+              Main content
             }
-          `,
+            <button #trigger></button>
+          }
+        `,
       })
       class MyCmp {
         renderBlock = true;
@@ -2749,14 +3091,15 @@ describe('@defer', () => {
 
     it('should unbind the trigger events when the deferred block is destroyed', fakeAsync(() => {
       @Component({
-        standalone: true,
         template: `
-              @if (renderBlock) {
-                @defer (on interaction(trigger)) {Main content}
-              }
+          @if (renderBlock) {
+            @defer (on interaction(trigger)) {
+              Main content
+            }
+          }
 
-              <button #trigger></button>
-            `,
+          <button #trigger></button>
+        `,
       })
       class MyCmp {
         renderBlock = true;
@@ -2778,19 +3121,17 @@ describe('@defer', () => {
 
     it('should remove placeholder content on interaction', fakeAsync(() => {
       @Component({
-        standalone: true,
         template: `
-           @defer (on interaction(trigger)) {
-             Main content
-           } @placeholder {
+          @defer (on interaction(trigger)) {
+            Main content
+          } @placeholder {
             <div>placeholder</div>
-           }
+          }
 
-           <button #trigger></button>
-         `,
+          <button #trigger></button>
+        `,
       })
       class MyCmp {}
-      TestBed.configureTestingModule({});
 
       const appRef = TestBed.inject(ApplicationRef);
       const zone = TestBed.inject(NgZone);
@@ -2811,12 +3152,13 @@ describe('@defer', () => {
 
     it('should prefetch resources on interaction', fakeAsync(() => {
       @Component({
-        standalone: true,
         selector: 'root-app',
         template: `
-              @defer (when isLoaded; prefetch on interaction(trigger)) {Main content}
-              <button #trigger></button>
-            `,
+          @defer (when isLoaded; prefetch on interaction(trigger)) {
+            Main content
+          }
+          <button #trigger></button>
+        `,
       })
       class MyCmp {
         // We need a `when` trigger here so that `on idle` doesn't get added automatically.
@@ -2855,15 +3197,14 @@ describe('@defer', () => {
 
     it('should prefetch resources on interaction with an implicit trigger', fakeAsync(() => {
       @Component({
-        standalone: true,
         selector: 'root-app',
         template: `
-             @defer (when isLoaded; prefetch on interaction) {
-              Main content
-             } @placeholder {
-              <button></button>
-             }
-           `,
+          @defer (when isLoaded; prefetch on interaction) {
+            Main content
+          } @placeholder {
+            <button></button>
+          }
+        `,
       })
       class MyCmp {
         // We need a `when` trigger here so that `on idle` doesn't get added automatically.
@@ -2909,16 +3250,15 @@ describe('@defer', () => {
       }
 
       @Component({
-        standalone: true,
         template: `
-              @defer (on hover(trigger)) {
-                Main content
-              } @placeholder {
-                Placeholder
-              }
+          @defer (on hover(trigger)) {
+            Main content
+          } @placeholder {
+            Placeholder
+          }
 
-              <button #trigger></button>
-            `,
+          <button #trigger></button>
+        `,
       })
       class MyCmp {}
 
@@ -2940,14 +3280,13 @@ describe('@defer', () => {
       }
 
       @Component({
-        standalone: true,
         template: `
-             @defer (on hover) {
-               Main content
-             } @placeholder {
-              <button>Placeholder</button>
-             }
-           `,
+          @defer (on hover) {
+            Main content
+          } @placeholder {
+            <button>Placeholder</button>
+          }
+        `,
       })
       class MyCmp {}
 
@@ -2970,22 +3309,21 @@ describe('@defer', () => {
       }
 
       @Component({
-        standalone: true,
         template: `
-              @defer (on hover(trigger)) {
-                Main content 1
-              } @placeholder {
-                Placeholder 1
-              }
+          @defer (on hover(trigger)) {
+            Main content 1
+          } @placeholder {
+            Placeholder 1
+          }
 
-              @defer (on hover(trigger)) {
-                Main content 2
-              } @placeholder {
-                Placeholder 2
-              }
+          @defer (on hover(trigger)) {
+            Main content 2
+          } @placeholder {
+            Placeholder 2
+          }
 
-              <button #trigger></button>
-           `,
+          <button #trigger></button>
+        `,
       })
       class MyCmp {}
 
@@ -3007,13 +3345,12 @@ describe('@defer', () => {
       }
 
       @Component({
-        standalone: true,
         template: `
-             @defer (on hover(trigger)) {
-              Main content
-             }
-             <button #trigger></button>
-           `,
+          @defer (on hover(trigger)) {
+            Main content
+          }
+          <button #trigger></button>
+        `,
       })
       class MyCmp {}
 
@@ -3040,15 +3377,14 @@ describe('@defer', () => {
       }
 
       @Component({
-        standalone: true,
         template: `
-            @if (renderBlock) {
-              @defer (on hover(trigger)) {
-                Main content
-              }
-              <button #trigger></button>
+          @if (renderBlock) {
+            @defer (on hover(trigger)) {
+              Main content
             }
-          `,
+            <button #trigger></button>
+          }
+        `,
       })
       class MyCmp {
         renderBlock = true;
@@ -3076,16 +3412,15 @@ describe('@defer', () => {
       }
 
       @Component({
-        standalone: true,
         template: `
-              @if (renderBlock) {
-                @defer (on hover(trigger)) {
-                  Main content
-                }
-              }
+          @if (renderBlock) {
+            @defer (on hover(trigger)) {
+              Main content
+            }
+          }
 
-              <button #trigger></button>
-            `,
+          <button #trigger></button>
+        `,
       })
       class MyCmp {
         renderBlock = true;
@@ -3113,14 +3448,13 @@ describe('@defer', () => {
       }
 
       @Component({
-        standalone: true,
         selector: 'root-app',
         template: `
-              @defer (when isLoaded; prefetch on hover(trigger)) {
-                Main content
-              }
-              <button #trigger></button>
-            `,
+          @defer (when isLoaded; prefetch on hover(trigger)) {
+            Main content
+          }
+          <button #trigger></button>
+        `,
       })
       class MyCmp {
         // We need a `when` trigger here so that `on idle` doesn't get added automatically.
@@ -3165,15 +3499,14 @@ describe('@defer', () => {
       }
 
       @Component({
-        standalone: true,
         selector: 'root-app',
         template: `
-             @defer (when isLoaded; prefetch on hover) {
-               Main content
-             } @placeholder {
-               <button></button>
-             }
-           `,
+          @defer (when isLoaded; prefetch on hover) {
+            Main content
+          } @placeholder {
+            <button></button>
+          }
+        `,
       })
       class MyCmp {
         // We need a `when` trigger here so that `on idle` doesn't get added automatically.
@@ -3216,7 +3549,6 @@ describe('@defer', () => {
     it('should trigger based on `on timer` condition', async () => {
       @Component({
         selector: 'nested-cmp',
-        standalone: true,
         template: 'Rendering {{ block }} block.',
       })
       class NestedCmp {
@@ -3224,18 +3556,17 @@ describe('@defer', () => {
       }
 
       @Component({
-        standalone: true,
         selector: 'root-app',
         imports: [NestedCmp],
         template: `
-            @for (item of items; track item) {
-              @defer (on timer(500ms)) {
-                <nested-cmp [block]="'primary for \`' + item + '\`'" />
-              } @placeholder {
-                Placeholder \`{{ item }}\`
-              }
+          @for (item of items; track item) {
+            @defer (on timer(500ms)) {
+              <nested-cmp [block]="'primary for \`' + item + '\`'" />
+            } @placeholder {
+              Placeholder \`{{ item }}\`
             }
-          `,
+          }
+        `,
       })
       class RootCmp {
         items = ['a', 'b', 'c', 'd', 'e', 'f', 'g'];
@@ -3252,8 +3583,13 @@ describe('@defer', () => {
       };
 
       TestBed.configureTestingModule({
-        providers: [{provide: ɵDEFER_BLOCK_DEPENDENCY_INTERCEPTOR, useValue: deferDepsInterceptor}],
+        providers: [
+          {provide: ɵDEFER_BLOCK_DEPENDENCY_INTERCEPTOR, useValue: deferDepsInterceptor},
+          {provide: TimerScheduler, useClass: FakeTimerScheduler},
+        ],
       });
+
+      const fakeScheduler = TestBed.inject(TimerScheduler) as unknown as FakeTimerScheduler;
 
       clearDirectiveDefs(RootCmp);
 
@@ -3267,7 +3603,7 @@ describe('@defer', () => {
       // Make sure loading function is not yet invoked.
       expect(loadingFnInvokedTimes).toBe(0);
 
-      await timer(1000);
+      fakeScheduler.invoke();
       await allPendingDynamicImports(); // fetching dependencies of the defer block
       fixture.detectChanges();
 
@@ -3292,7 +3628,6 @@ describe('@defer', () => {
 
     it('should trigger nested `on timer` condition', async () => {
       @Component({
-        standalone: true,
         selector: 'root-app',
         template: `
           @defer (on timer(100ms)) {
@@ -3310,24 +3645,26 @@ describe('@defer', () => {
       })
       class RootCmp {}
 
-      TestBed.configureTestingModule({});
+      TestBed.configureTestingModule({
+        providers: [{provide: TimerScheduler, useClass: FakeTimerScheduler}],
+      });
+      const fakeScheduler = TestBed.inject(TimerScheduler) as unknown as FakeTimerScheduler;
 
       clearDirectiveDefs(RootCmp);
 
       const fixture = TestBed.createComponent(RootCmp);
-      fixture.detectChanges();
 
       expect(fixture.nativeElement.outerHTML).toContain('placeholder[top]');
 
-      await timer(110);
-      fixture.detectChanges();
+      fakeScheduler.invoke();
+      await allPendingDynamicImports(); // fetching dependencies of the defer block
 
       // Verify primary blocks content after triggering top-level @defer.
       expect(fixture.nativeElement.outerHTML).toContain('primary[top]');
       expect(fixture.nativeElement.outerHTML).toContain('placeholder[nested]');
 
-      await timer(110);
-      fixture.detectChanges();
+      fakeScheduler.invoke();
+      await allPendingDynamicImports(); // fetching dependencies of the defer block
 
       // Verify that nested @defer block was triggered as well.
       expect(fixture.nativeElement.outerHTML).toContain('primary[top]');
@@ -3339,7 +3676,6 @@ describe('@defer', () => {
     it('should trigger prefetching based on `on timer` condition', async () => {
       @Component({
         selector: 'nested-cmp',
-        standalone: true,
         template: 'Rendering {{ block }} block.',
       })
       class NestedCmp {
@@ -3347,18 +3683,17 @@ describe('@defer', () => {
       }
 
       @Component({
-        standalone: true,
         selector: 'root-app',
         imports: [NestedCmp],
         template: `
-            @for (item of items; track item) {
-              @defer (when shouldTrigger; prefetch on timer(100ms)) {
-                <nested-cmp [block]="'primary for \`' + item + '\`'" />
-              } @placeholder {
-                Placeholder \`{{ item }}\`
-              }
+          @for (item of items; track item) {
+            @defer (when shouldTrigger; prefetch on timer(100ms)) {
+              <nested-cmp [block]="'primary for \`' + item + '\`'" />
+            } @placeholder {
+              Placeholder \`{{ item }}\`
             }
-          `,
+          }
+        `,
       })
       class RootCmp {
         shouldTrigger = false;
@@ -3376,8 +3711,13 @@ describe('@defer', () => {
       };
 
       TestBed.configureTestingModule({
-        providers: [{provide: ɵDEFER_BLOCK_DEPENDENCY_INTERCEPTOR, useValue: deferDepsInterceptor}],
+        providers: [
+          {provide: ɵDEFER_BLOCK_DEPENDENCY_INTERCEPTOR, useValue: deferDepsInterceptor},
+          {provide: TimerScheduler, useClass: FakeTimerScheduler},
+        ],
       });
+
+      const fakeScheduler = TestBed.inject(TimerScheduler) as unknown as FakeTimerScheduler;
 
       clearDirectiveDefs(RootCmp);
 
@@ -3391,7 +3731,7 @@ describe('@defer', () => {
       // Make sure loading function is not yet invoked.
       expect(loadingFnInvokedTimes).toBe(0);
 
-      await timer(200);
+      fakeScheduler.invoke();
       await allPendingDynamicImports(); // fetching dependencies of the defer block
       fixture.detectChanges();
 
@@ -3428,19 +3768,16 @@ describe('@defer', () => {
       const clearSpy = spyOn(globalThis, 'clearTimeout');
 
       @Component({
-        standalone: true,
         selector: 'root-app',
         template: `
-              @defer (when isVisible; on timer(200ms); prefetch on timer(100ms)) {
-                Hello world!
-              }
-            `,
+          @defer (when isVisible; on timer(200ms); prefetch on timer(100ms)) {
+            Hello world!
+          }
+        `,
       })
       class RootCmp {
         isVisible = false;
       }
-
-      TestBed.configureTestingModule({});
 
       clearDirectiveDefs(RootCmp);
 
@@ -3481,11 +3818,15 @@ describe('@defer', () => {
       root = null;
       rootMargin = null!;
       thresholds = null!;
+      scrollMargin = null!;
 
       observedElements = new Set<Element>();
       private elementsInView = new Set<Element>();
 
-      constructor(private callback: IntersectionObserverCallback) {
+      constructor(
+        private callback: IntersectionObserverCallback,
+        readonly options: IntersectionObserverInit | null = null,
+      ) {
         activeObservers.push(this);
       }
 
@@ -3554,16 +3895,15 @@ describe('@defer', () => {
 
     it('should load the deferred content when the trigger is in the viewport', fakeAsync(() => {
       @Component({
-        standalone: true,
         template: `
-              @defer (on viewport(trigger)) {
-                Main content
-              } @placeholder {
-                Placeholder
-              }
+          @defer (on viewport(trigger)) {
+            Main content
+          } @placeholder {
+            Placeholder
+          }
 
-              <button #trigger></button>
-            `,
+          <button #trigger></button>
+        `,
       })
       class MyCmp {}
 
@@ -3581,14 +3921,13 @@ describe('@defer', () => {
 
     it('should load the deferred content when an implicit trigger is in the viewport', fakeAsync(() => {
       @Component({
-        standalone: true,
         template: `
-             @defer (on viewport) {
-               Main content
-             } @placeholder {
-              <button>Placeholder</button>
-             }
-           `,
+          @defer (on viewport) {
+            Main content
+          } @placeholder {
+            <button>Placeholder</button>
+          }
+        `,
       })
       class MyCmp {}
 
@@ -3607,16 +3946,15 @@ describe('@defer', () => {
 
     it('should not load the content if the trigger is not in the view yet', fakeAsync(() => {
       @Component({
-        standalone: true,
         template: `
-             @defer (on viewport(trigger)) {
-              Main content
-             } @placeholder {
-              Placeholder
-             }
+          @defer (on viewport(trigger)) {
+            Main content
+          } @placeholder {
+            Placeholder
+          }
 
-             <button #trigger></button>
-           `,
+          <button #trigger></button>
+        `,
       })
       class MyCmp {}
 
@@ -3645,22 +3983,21 @@ describe('@defer', () => {
 
     it('should support multiple deferred blocks with the same trigger', fakeAsync(() => {
       @Component({
-        standalone: true,
         template: `
-            @defer (on viewport(trigger)) {
-              Main content 1
-            } @placeholder {
-              Placeholder 1
-            }
+          @defer (on viewport(trigger)) {
+            Main content 1
+          } @placeholder {
+            Placeholder 1
+          }
 
-            @defer (on viewport(trigger)) {
-              Main content 2
-            } @placeholder {
-              Placeholder 2
-            }
+          @defer (on viewport(trigger)) {
+            Main content 2
+          } @placeholder {
+            Placeholder 2
+          }
 
-            <button #trigger></button>
-          `,
+          <button #trigger></button>
+        `,
       })
       class MyCmp {}
 
@@ -3677,13 +4014,12 @@ describe('@defer', () => {
 
     it('should stop observing the trigger when the deferred block is loaded', fakeAsync(() => {
       @Component({
-        standalone: true,
         template: `
-            @defer (on viewport(trigger)) {
-              Main content
-            }
-            <button #trigger></button>
-          `,
+          @defer (on viewport(trigger)) {
+            Main content
+          }
+          <button #trigger></button>
+        `,
       })
       class MyCmp {}
 
@@ -3705,15 +4041,14 @@ describe('@defer', () => {
 
     it('should stop observing the trigger when the trigger is destroyed', fakeAsync(() => {
       @Component({
-        standalone: true,
         template: `
-           @if (renderBlock) {
-             @defer (on viewport(trigger)) {
+          @if (renderBlock) {
+            @defer (on viewport(trigger)) {
               Main content
-             }
-             <button #trigger></button>
-           }
-         `,
+            }
+            <button #trigger></button>
+          }
+        `,
       })
       class MyCmp {
         renderBlock = true;
@@ -3736,16 +4071,15 @@ describe('@defer', () => {
 
     it('should stop observing the trigger when the deferred block is destroyed', fakeAsync(() => {
       @Component({
-        standalone: true,
         template: `
-             @if (renderBlock) {
-              @defer (on viewport(trigger)) {
-                Main content
-              }
-             }
+          @if (renderBlock) {
+            @defer (on viewport(trigger)) {
+              Main content
+            }
+          }
 
-             <button #trigger></button>
-           `,
+          <button #trigger></button>
+        `,
       })
       class MyCmp {
         renderBlock = true;
@@ -3768,18 +4102,17 @@ describe('@defer', () => {
 
     it('should disconnect the intersection observer once all deferred blocks have been loaded', fakeAsync(() => {
       @Component({
-        standalone: true,
         template: `
-            <button #triggerOne></button>
-            @defer (on viewport(triggerOne)) {
-              One
-            }
+          <button #triggerOne></button>
+          @defer (on viewport(triggerOne)) {
+            One
+          }
 
-            <button #triggerTwo></button>
-            @defer (on viewport(triggerTwo)) {
-              Two
-            }
-          `,
+          <button #triggerTwo></button>
+          @defer (on viewport(triggerTwo)) {
+            Two
+          }
+        `,
       })
       class MyCmp {}
 
@@ -3808,14 +4141,13 @@ describe('@defer', () => {
 
     it('should prefetch resources when the trigger comes into the viewport', fakeAsync(() => {
       @Component({
-        standalone: true,
         selector: 'root-app',
         template: `
-             @defer (when isLoaded; prefetch on viewport(trigger)) {
-              Main content
-             }
-             <button #trigger></button>
-           `,
+          @defer (when isLoaded; prefetch on viewport(trigger)) {
+            Main content
+          }
+          <button #trigger></button>
+        `,
       })
       class MyCmp {
         // We need a `when` trigger here so that `on idle` doesn't get added automatically.
@@ -3855,15 +4187,14 @@ describe('@defer', () => {
 
     it('should prefetch resources when an implicit trigger comes into the viewport', fakeAsync(() => {
       @Component({
-        standalone: true,
         selector: 'root-app',
         template: `
-             @defer (when isLoaded; prefetch on viewport) {
-              Main content
-             } @placeholder {
-               <button></button>
-             }
-           `,
+          @defer (when isLoaded; prefetch on viewport) {
+            Main content
+          } @placeholder {
+            <button></button>
+          }
+        `,
       })
       class MyCmp {
         // We need a `when` trigger here so that `on idle` doesn't get added automatically.
@@ -3902,8 +4233,8 @@ describe('@defer', () => {
     }));
 
     it('should load deferred content in a loop', fakeAsync(() => {
+      // prettier-ignore
       @Component({
-        standalone: true,
         template: `
               @for (item of items; track item) {
                 @defer (on viewport) {d{{item}} }
@@ -3939,18 +4270,103 @@ describe('@defer', () => {
       }
       expect(fixture.nativeElement.textContent.trim()).toBe('d1 d2 d3 d4 d5 d6');
     }));
+
+    it('should take the `on viewport` options into account when creating IntersectionObserver', fakeAsync(() => {
+      @Component({
+        template: `
+          @defer (on viewport({trigger, rootMargin: '123px', threshold: 0.5})) {
+            Hello
+          }
+          <button #trigger></button>
+        `,
+      })
+      class MyCmp {}
+
+      const fixture = TestBed.createComponent(MyCmp);
+      fixture.detectChanges();
+
+      const button: HTMLButtonElement = fixture.nativeElement.querySelector('button');
+      expect(activeObservers.length).toBe(1);
+      expect(activeObservers[0].observedElements.size).toBe(1);
+      expect(activeObservers[0].observedElements.has(button)).toBe(true);
+      expect(activeObservers[0].options).toEqual({rootMargin: '123px', threshold: 0.5});
+    }));
+
+    it('should take the `prefetch on viewport` options into account when creating IntersectionObserver', fakeAsync(() => {
+      @Component({
+        template: `
+          @defer (prefetch on viewport({trigger, rootMargin: '123px', threshold: 0.5})) {
+            Hello
+          }
+          <button #trigger></button>
+        `,
+      })
+      class MyCmp {}
+
+      const fixture = TestBed.createComponent(MyCmp);
+      fixture.detectChanges();
+
+      const button: HTMLButtonElement = fixture.nativeElement.querySelector('button');
+      expect(activeObservers.length).toBe(1);
+      expect(activeObservers[0].observedElements.size).toBe(1);
+      expect(activeObservers[0].observedElements.has(button)).toBe(true);
+      expect(activeObservers[0].options).toEqual({rootMargin: '123px', threshold: 0.5});
+    }));
+
+    it('should create different intersection observers depending on their options', fakeAsync(() => {
+      @Component({
+        template: `
+          @defer (on viewport(trigger)) {
+            One
+          }
+          @defer (on viewport({trigger, rootMargin: '123px'})) {
+            Two
+          }
+          @defer (on viewport({trigger, rootMargin: '1vh'})) {
+            Three
+          }
+          @defer (on viewport(trigger)) {
+            One Duplicate
+          }
+          @defer (on viewport({trigger, rootMargin: '123px'})) {
+            Two Duplicate
+          }
+
+          <button #trigger></button>
+        `,
+      })
+      class MyCmp {}
+
+      const fixture = TestBed.createComponent(MyCmp);
+      fixture.detectChanges();
+
+      const button: HTMLButtonElement = fixture.nativeElement.querySelector('button');
+      expect(activeObservers.length).toBe(3);
+      expect(activeObservers[0].observedElements.size).toBe(1);
+      expect(activeObservers[0].observedElements.has(button)).toBe(true);
+      expect(activeObservers[0].options).toBe(null);
+
+      expect(activeObservers[1].observedElements.size).toBe(1);
+      expect(activeObservers[1].observedElements.has(button)).toBe(true);
+      expect(activeObservers[1].options).toEqual({rootMargin: '123px'});
+
+      expect(activeObservers[2].observedElements.size).toBe(1);
+      expect(activeObservers[2].observedElements.has(button)).toBe(true);
+      expect(activeObservers[2].options).toEqual({rootMargin: '1vh'});
+    }));
   });
 
   describe('DOM-based events cleanup', () => {
     it('should unbind `interaction` trigger events when the deferred block is loaded', async () => {
       @Component({
-        standalone: true,
         template: `
           @defer (
             when isVisible;
             on interaction(trigger);
             prefetch on interaction(prefetchTrigger)
-          ) { Main content }
+          ) {
+            Main content
+          }
           <button #trigger></button>
           <div #prefetchTrigger></div>
         `,
@@ -3994,13 +4410,10 @@ describe('@defer', () => {
 
     it('should unbind `hover` trigger events when the deferred block is loaded', async () => {
       @Component({
-        standalone: true,
         template: `
-          @defer (
-            when isVisible;
-            on hover(trigger);
-            prefetch on hover(prefetchTrigger)
-          ) { Main content }
+          @defer (when isVisible; on hover(trigger); prefetch on hover(prefetchTrigger)) {
+            Main content
+          }
           <button #trigger></button>
           <div #prefetchTrigger></div>
         `,
@@ -4067,7 +4480,6 @@ describe('@defer', () => {
       const TokenB = new InjectionToken('B');
 
       @Component({
-        standalone: true,
         selector: 'parent-cmp',
         template: '<ng-content />',
         providers: [{provide: TokenA, useValue: 'TokenA.ParentCmp'}],
@@ -4075,7 +4487,6 @@ describe('@defer', () => {
       class ParentCmp {}
 
       @Component({
-        standalone: true,
         selector: 'child-cmp',
         template: 'Token A: {{ parentTokenA }} | Token B: {{ parentTokenB }}',
       })
@@ -4085,7 +4496,6 @@ describe('@defer', () => {
       }
 
       @Component({
-        standalone: true,
         selector: 'app-root',
         template: `
           <parent-cmp>
@@ -4145,34 +4555,27 @@ describe('@defer', () => {
 
         @Component({
           selector: 'lazy',
-          standalone: true,
           imports: [MyModule],
-          template: `
-          Lazy Component! Token: {{ token }}
-        `,
+          template: ` Lazy Component! Token: {{ token }} `,
         })
         class Lazy {
           token = inject(TokenA);
         }
 
         @Component({
-          standalone: true,
           imports: [Lazy],
           template: `
-          @defer (on immediate) {
-            <lazy />
-          }
-        `,
+            @defer (on immediate) {
+              <lazy />
+            }
+          `,
         })
         class Dialog {}
 
         @Component({
-          standalone: true,
           selector: 'app-root',
           providers: [{provide: TokenA, useValue: 'TokenA from RootCmp'}],
-          template: `
-          <div #container></div>
-        `,
+          template: ` <div #container></div> `,
         })
         class RootCmp {
           injector = inject(Injector);
@@ -4260,16 +4663,14 @@ describe('@defer', () => {
       @Component({
         selector: 'chart-collection',
         template: '<chart />',
-        standalone: true,
         imports: [ChartsModule],
       })
       class ChartCollectionComponent {}
 
       @Component({
         selector: 'app-root',
-        standalone: true,
         template: `
-          @for(item of items; track $index) {
+          @for (item of items; track $index) {
             @defer (when isVisible) {
               <chart-collection />
             }
@@ -4336,14 +4737,12 @@ describe('@defer', () => {
       class MyModuleA {}
 
       @Component({
-        standalone: true,
         imports: [RouterOutlet],
         template: '<router-outlet />',
       })
       class App {}
 
       @Component({
-        standalone: true,
         selector: 'another-child',
         imports: [CommonModule, MyModuleA],
         template: 'another child: {{route.snapshot.url[0]}} | token: {{tokenA}}',
@@ -4357,11 +4756,9 @@ describe('@defer', () => {
       }
 
       @Component({
-        standalone: true,
         imports: [CommonModule, AnotherChild],
         template: `
-          child: {{route.snapshot.url[0]}} |
-          token: {{tokenA}}
+          child: {{ route.snapshot.url[0] }} | token: {{ tokenA }}
           @defer (on immediate) {
             <another-child />
           }
@@ -4424,5 +4821,306 @@ describe('@defer', () => {
       expect(app.nativeElement.innerHTML).toContain('child: b | token: root');
       expect(app.nativeElement.innerHTML).toContain('another child: b | token: nested');
     });
+  });
+});
+
+describe('IdleScheduler', () => {
+  let scheduler: IdleScheduler;
+  let customIdleService: CustomIdleService;
+
+  class CustomIdleService implements IdleService {
+    requestOnIdleSpy = jasmine.createSpy('requestOnIdleFn');
+
+    requestOnIdle(
+      callback: (deadline?: IdleDeadline) => void,
+      options?: IdleRequestOptions,
+    ): number {
+      return this.requestOnIdleSpy(callback, options);
+    }
+
+    cancelOnIdle(id: number): void {}
+  }
+
+  beforeEach(() => {
+    customIdleService = new CustomIdleService();
+    TestBed.configureTestingModule({
+      providers: [{provide: IDLE_SERVICE, useValue: customIdleService}],
+    });
+    scheduler = TestBed.inject(IdleScheduler);
+  });
+
+  afterEach(() => {
+    scheduler.ngOnDestroy();
+  });
+
+  it('should execute all callbacks when there is enough time', () => {
+    let capturedCb: ((deadline: any) => void) | null = null;
+    let ricCount = 0;
+
+    customIdleService.requestOnIdleSpy.and.callFake((cb: any) => {
+      ricCount++;
+      capturedCb = cb;
+      return 100 + ricCount;
+    });
+
+    const cb1 = jasmine.createSpy('cb1');
+    const cb2 = jasmine.createSpy('cb2');
+
+    scheduler.add(cb1);
+    scheduler.add(cb2);
+
+    expect(ricCount).toBe(1);
+    expect(capturedCb).not.toBeNull();
+
+    const deadline = {
+      didTimeout: false,
+      timeRemaining: () => 10,
+    };
+
+    const previousCb = capturedCb!;
+    capturedCb = null;
+    previousCb(deadline);
+
+    expect(cb1).toHaveBeenCalledTimes(1);
+    expect(cb2).toHaveBeenCalledTimes(1);
+
+    expect(ricCount).toBe(1); // No more scheduled
+    expect(capturedCb).toBeNull();
+  });
+
+  it('should split callbacks across requestIdleCallback invocations when deadline is reached', () => {
+    let capturedCb: ((deadline: any) => void) | null = null;
+    let ricCount = 0;
+
+    customIdleService.requestOnIdleSpy.and.callFake((cb: any) => {
+      ricCount++;
+      capturedCb = cb;
+      return 100 + ricCount;
+    });
+
+    const cb1 = jasmine.createSpy('cb1');
+    const cb2 = jasmine.createSpy('cb2');
+    const cb3 = jasmine.createSpy('cb3');
+
+    scheduler.add(cb1);
+    scheduler.add(cb2);
+    scheduler.add(cb3);
+
+    expect(ricCount).toBe(1);
+    expect(capturedCb).not.toBeNull();
+
+    let timeRemainingCalls = 0;
+    let deadline = {
+      didTimeout: false,
+      timeRemaining: () => {
+        timeRemainingCalls++;
+        // 1st check (after cb1): return 10
+        // 2nd check (after cb2): return 0 -> should break
+        return timeRemainingCalls === 1 ? 10 : 0;
+      },
+    };
+
+    let previousCb = capturedCb!;
+    capturedCb = null;
+    previousCb(deadline);
+
+    expect(cb1).toHaveBeenCalledTimes(1);
+    expect(cb2).toHaveBeenCalledTimes(1);
+    expect(cb3).toHaveBeenCalledTimes(0); // Did not run yet
+
+    expect(ricCount).toBe(2); // A new idle callback was scheduled
+    expect(capturedCb).not.toBeNull(); // with a new cb
+
+    // Invoke the second callback, this time with plenty of time
+    deadline = {
+      didTimeout: false,
+      timeRemaining: () => 10,
+    };
+
+    previousCb = capturedCb!;
+    capturedCb = null;
+    previousCb(deadline);
+
+    expect(cb3).toHaveBeenCalledTimes(1); // Now it ran
+
+    expect(ricCount).toBe(2); // No more idle callbacks scheduled
+    expect(capturedCb).toBeNull();
+  });
+
+  it('should ignore time remaining if didTimeout is true', () => {
+    let capturedCb: ((deadline: any) => void) | null = null;
+    let ricCount = 0;
+
+    customIdleService.requestOnIdleSpy.and.callFake((cb: any) => {
+      ricCount++;
+      capturedCb = cb;
+      return 100 + ricCount;
+    });
+
+    const cb1 = jasmine.createSpy('cb1');
+    const cb2 = jasmine.createSpy('cb2');
+
+    scheduler.add(cb1);
+    scheduler.add(cb2);
+
+    expect(ricCount).toBe(1);
+    expect(capturedCb).not.toBeNull();
+
+    const deadline = {
+      didTimeout: true,
+      timeRemaining: () => 0, // Even with 0 time, didTimeout should force execution
+    };
+
+    const previousCb = capturedCb!;
+    capturedCb = null;
+    previousCb(deadline);
+
+    expect(cb1).toHaveBeenCalledTimes(1);
+    expect(cb2).toHaveBeenCalledTimes(1);
+
+    expect(ricCount).toBe(1); // No more idle callbacks scheduled
+    expect(capturedCb).toBeNull();
+  });
+
+  it('should fallback properly if deadline is not passed in (setTimeout shim)', () => {
+    let capturedCb: ((deadline: any) => void) | null = null;
+    let ricCount = 0;
+
+    customIdleService.requestOnIdleSpy.and.callFake((cb: any) => {
+      ricCount++;
+      capturedCb = cb;
+      return 100 + ricCount;
+    });
+
+    // Test with undefined (empty arguments, typical of setTimeout)
+    let cb1 = jasmine.createSpy('cb1');
+    scheduler.add(cb1);
+    capturedCb!(undefined);
+    expect(cb1).toHaveBeenCalledTimes(1);
+  });
+
+  it('should pass timeout option to idleService.requestOnIdle', () => {
+    let capturedOptions: any = undefined;
+
+    customIdleService.requestOnIdleSpy.and.callFake((cb: any, options: any) => {
+      capturedOptions = options;
+      return 1;
+    });
+
+    scheduler.add(jasmine.createSpy('cb'), {timeout: 500});
+
+    expect(customIdleService.requestOnIdleSpy).toHaveBeenCalledTimes(1);
+    expect(capturedOptions).toEqual({timeout: 500});
+  });
+
+  it('should not pass timeout option when timeout is not specified', () => {
+    let capturedOptions: any = 'NOT_CALLED';
+
+    customIdleService.requestOnIdleSpy.and.callFake((cb: any, options: any) => {
+      capturedOptions = options;
+      return 1;
+    });
+
+    scheduler.add(jasmine.createSpy('cb'));
+
+    expect(customIdleService.requestOnIdleSpy).toHaveBeenCalledTimes(1);
+    expect(capturedOptions).toBeUndefined();
+  });
+
+  it('should create independent buckets for different timeouts', () => {
+    let capturedCbs: Array<(deadline: any) => void> = [];
+    let capturedOptions: any[] = [];
+    let ricCount = 0;
+
+    customIdleService.requestOnIdleSpy.and.callFake((cb: any, options: any) => {
+      ricCount++;
+      capturedCbs.push(cb);
+      capturedOptions.push(options);
+      return 100 + ricCount;
+    });
+
+    const cb1 = jasmine.createSpy('cb1');
+    const cb2 = jasmine.createSpy('cb2');
+
+    // First callback with 1000ms timeout
+    scheduler.add(cb1, {timeout: 1000});
+    expect(ricCount).toBe(1);
+    expect(capturedOptions[0]).toEqual({timeout: 1000});
+
+    // Second callback with 200ms timeout → separate bucket, separate requestIdleCallback
+    scheduler.add(cb2, {timeout: 200});
+    expect(ricCount).toBe(2);
+    expect(capturedOptions[1]).toEqual({timeout: 200});
+
+    // Fire the 200ms bucket first (browser would call this sooner)
+    capturedCbs[1]({didTimeout: true, timeRemaining: () => 0});
+    expect(cb2).toHaveBeenCalledTimes(1);
+    expect(cb1).toHaveBeenCalledTimes(0); // Not in this bucket
+
+    // Fire the 1000ms bucket
+    capturedCbs[0]({didTimeout: true, timeRemaining: () => 0});
+    expect(cb1).toHaveBeenCalledTimes(1);
+  });
+
+  it('should batch callbacks with the same timeout into one bucket', () => {
+    let capturedCb: ((deadline: any) => void) | null = null;
+    let capturedOptions: any[] = [];
+    let ricCount = 0;
+
+    customIdleService.requestOnIdleSpy.and.callFake((cb: any, options: any) => {
+      ricCount++;
+      capturedCb = cb;
+      capturedOptions.push(options);
+      return 100 + ricCount;
+    });
+
+    const cb1 = jasmine.createSpy('cb1');
+    const cb2 = jasmine.createSpy('cb2');
+
+    // Both callbacks with the same 500ms timeout → same bucket
+    scheduler.add(cb1, {timeout: 500});
+    scheduler.add(cb2, {timeout: 500});
+    expect(ricCount).toBe(1); // Only one requestIdleCallback
+    expect(capturedOptions[0]).toEqual({timeout: 500});
+
+    // Fire the bucket — both should run
+    capturedCb!({didTimeout: true, timeRemaining: () => 0});
+    expect(cb1).toHaveBeenCalledTimes(1);
+    expect(cb2).toHaveBeenCalledTimes(1);
+  });
+
+  it('should keep no-timeout bucket independent from timeout buckets', () => {
+    let capturedCbs: Array<(deadline: any) => void> = [];
+    let capturedOptions: any[] = [];
+    let ricCount = 0;
+
+    customIdleService.requestOnIdleSpy.and.callFake((cb: any, options: any) => {
+      ricCount++;
+      capturedCbs.push(cb);
+      capturedOptions.push(options);
+      return 100 + ricCount;
+    });
+
+    const cb1 = jasmine.createSpy('cb1');
+    const cb2 = jasmine.createSpy('cb2');
+
+    // No timeout
+    scheduler.add(cb1);
+    expect(ricCount).toBe(1);
+    expect(capturedOptions[0]).toBeUndefined();
+
+    // With 300ms timeout → separate bucket
+    scheduler.add(cb2, {timeout: 300});
+    expect(ricCount).toBe(2);
+    expect(capturedOptions[1]).toEqual({timeout: 300});
+
+    // Fire the 300ms bucket
+    capturedCbs[1]({didTimeout: true, timeRemaining: () => 0});
+    expect(cb2).toHaveBeenCalledTimes(1);
+    expect(cb1).toHaveBeenCalledTimes(0);
+
+    // Fire the no-timeout bucket
+    capturedCbs[0]({didTimeout: false, timeRemaining: () => 10});
+    expect(cb1).toHaveBeenCalledTimes(1);
   });
 });

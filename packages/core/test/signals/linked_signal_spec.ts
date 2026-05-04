@@ -3,10 +3,11 @@
  * Copyright Google LLC All Rights Reserved.
  *
  * Use of this source code is governed by an MIT-style license that can be
- * found in the LICENSE file at https://angular.io/license
+ * found in the LICENSE file at https://angular.dev/license
  */
 
-import {isSignal, linkedSignal, signal, computed} from '@angular/core';
+import {isSignal, linkedSignal, signal, computed} from '../../src/core';
+import {setPostProducerCreatedFn} from '../../primitives/signals';
 import {testingEffect} from './effect_util';
 
 describe('linkedSignal', () => {
@@ -43,6 +44,18 @@ describe('linkedSignal', () => {
     expect(firstLetterReadonly()).toBe('b');
     firstLetter.set('c');
     expect(firstLetterReadonly()).toBe('c');
+  });
+
+  it('should support debugName in options object', () => {
+    const options = signal(['apple', 'banana', 'fig']);
+    const choice = linkedSignal({
+      source: options,
+      computation: (options) => options[0],
+      debugName: 'TestChoice',
+    });
+
+    expect(choice()).toBe('apple');
+    expect(choice.toString()).toBe('[LinkedSignal: apple]');
   });
 
   it('should update when the source changes', () => {
@@ -147,6 +160,56 @@ describe('linkedSignal', () => {
     expect(choice()).toBe(0);
   });
 
+  it('should throw error from update if current computation state is an error', () => {
+    const source = linkedSignal<number>(() => {
+      // Initial computation fails.
+      throw new Error('failure');
+    });
+
+    let updaterRan = false;
+    expect(() =>
+      source.update(() => {
+        // Note: we explicitly do _not_ interact with the previous value here. That's because in the
+        // failure mode, the previous value is an internal `Symbol` from `linkedSignal`, and we want
+        // to avoid throwing any errors related to this `Symbol` and causing the test to incorrectly
+        // pass.
+
+        updaterRan = true;
+        return 0;
+      }),
+    ).toThrowError(/failure/);
+    expect(updaterRan).toBeFalse();
+  });
+
+  it('should not recompute downstream dependencies when computed value is equal to the currently set value', () => {
+    const source = signal(0);
+    const isEven = linkedSignal(() => source() % 2 === 0);
+
+    let updateCounter = 0;
+    const updateTracker = computed(() => {
+      isEven();
+      return updateCounter++;
+    });
+
+    updateTracker();
+    expect(updateCounter).toEqual(1);
+    expect(isEven()).toBeTrue();
+
+    isEven.set(false);
+    updateTracker();
+    expect(updateCounter).toEqual(2);
+
+    // Setting the source signal such that the linked value is the same
+    source.set(1);
+    updateTracker();
+    // downstream dependency should _not_ be recomputed
+    expect(updateCounter).toEqual(2);
+
+    source.set(4);
+    updateTracker();
+    expect(updateCounter).toEqual(3);
+  });
+
   it('should support shorthand version', () => {
     const options = signal(['apple', 'banana', 'fig']);
     const choice = linkedSignal(() => options()[0]);
@@ -245,5 +308,15 @@ describe('linkedSignal', () => {
 
     choice.set('explicit');
     expect(choice()).toBe('explicit');
+  });
+
+  it('should call the post-producer-created fn when signal is called', () => {
+    let producers = 0;
+    const prev = setPostProducerCreatedFn(() => producers++);
+    const options = signal(['apple', 'banana', 'fig']);
+    linkedSignal(() => options()[0]);
+
+    expect(producers).toBe(2);
+    setPostProducerCreatedFn(prev);
   });
 });

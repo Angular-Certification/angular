@@ -15,8 +15,8 @@ import {
   OnInit,
   SimpleChanges,
   Type,
-} from '@angular/core';
-import {TestBed} from '@angular/core/testing';
+} from '../../src/core';
+import {TestBed} from '../../testing';
 
 describe('exports', () => {
   beforeEach(() => {
@@ -216,6 +216,7 @@ describe('exports', () => {
       fixture.detectChanges();
       fixture.componentInstance.outer = true;
       fixture.componentInstance.inner = true;
+      fixture.changeDetectorRef.markForCheck();
       fixture.detectChanges();
 
       // result should be <input value="one"><div>one <input value="two"><div>one - two</div></div>

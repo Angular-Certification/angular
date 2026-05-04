@@ -5,13 +5,13 @@
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file at https://angular.dev/license
  */
-/* tslint:disable:no-console  */
 import {
   ChangeDetectionStrategy,
   ChangeDetectorRef,
   Component,
-  Input,
-  NgModule,
+  effect,
+  input,
+  signal,
 } from '@angular/core';
 import {FormsModule} from '@angular/forms';
 
@@ -20,7 +20,6 @@ import {FormsModule} from '@angular/forms';
   selector: 'app-root',
   template: `Number of ticks: {{ numberOfTicks }}`,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  standalone: false,
 })
 class AppComponent {
   numberOfTicks = 0;
@@ -45,8 +44,11 @@ class DataListProvider {
 
 @Component({
   selector: 'giant-list',
-  template: ` <li *ngFor="let d of dataProvider.data">Data {{ d }}</li> `,
-  standalone: false,
+  template: ` <ul>
+    @for (d of dataProvider.data; track $index) {
+      <li>Item {{ d }}</li>
+    }
+  </ul>`,
 })
 class GiantList {
   constructor(
@@ -63,57 +65,52 @@ class GiantList {
 @Component({
   selector: 'app',
   providers: [DataListProvider],
-  template: ` <giant-list></giant-list> `,
-  standalone: false,
+  imports: [GiantList],
+  template: `<giant-list />`,
 })
 class App {}
 // #enddocregion detach
 
 // #docregion reattach
 class DataProvider {
-  data = 1;
+  data = signal(1);
   constructor() {
     setInterval(() => {
-      this.data = 2;
+      this.data.set(2);
     }, 500);
   }
 }
 
 @Component({
   selector: 'live-data',
-  inputs: ['live'],
-  template: 'Data: {{dataProvider.data}}',
-  standalone: false,
+  template: 'Data: {{dataProvider.data()}}',
 })
 class LiveData {
+  live = input.required<boolean>();
   constructor(
     private ref: ChangeDetectorRef,
     public dataProvider: DataProvider,
-  ) {}
-
-  @Input()
-  set live(value: boolean) {
-    if (value) {
-      this.ref.reattach();
-    } else {
-      this.ref.detach();
-    }
+  ) {
+    effect(() => {
+      if (this.live()) {
+        this.ref.reattach();
+      } else {
+        this.ref.detach();
+      }
+    });
   }
 }
 
 @Component({
   selector: 'app',
   providers: [DataProvider],
+  imports: [FormsModule, LiveData],
   template: `
     Live Update: <input type="checkbox" [(ngModel)]="live" />
     <live-data [live]="live"></live-data>
   `,
-  standalone: false,
 })
 class App1 {
   live = true;
 }
 // #enddocregion reattach
-
-@NgModule({declarations: [AppComponent, GiantList, App, LiveData, App1], imports: [FormsModule]})
-class CoreExamplesModule {}

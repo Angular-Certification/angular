@@ -22,6 +22,40 @@ class _EmittedLine {
   constructor(public indent: number) {}
 }
 
+const BINARY_OPERATORS = new Map([
+  [o.BinaryOperator.And, '&&'],
+  [o.BinaryOperator.Bigger, '>'],
+  [o.BinaryOperator.BiggerEquals, '>='],
+  [o.BinaryOperator.BitwiseOr, '|'],
+  [o.BinaryOperator.BitwiseAnd, '&'],
+  [o.BinaryOperator.Divide, '/'],
+  [o.BinaryOperator.Assign, '='],
+  [o.BinaryOperator.Equals, '=='],
+  [o.BinaryOperator.Identical, '==='],
+  [o.BinaryOperator.Lower, '<'],
+  [o.BinaryOperator.LowerEquals, '<='],
+  [o.BinaryOperator.Minus, '-'],
+  [o.BinaryOperator.Modulo, '%'],
+  [o.BinaryOperator.Exponentiation, '**'],
+  [o.BinaryOperator.Multiply, '*'],
+  [o.BinaryOperator.NotEquals, '!='],
+  [o.BinaryOperator.NotIdentical, '!=='],
+  [o.BinaryOperator.NullishCoalesce, '??'],
+  [o.BinaryOperator.Or, '||'],
+  [o.BinaryOperator.Plus, '+'],
+  [o.BinaryOperator.In, 'in'],
+  [o.BinaryOperator.InstanceOf, 'instanceof'],
+  [o.BinaryOperator.AdditionAssignment, '+='],
+  [o.BinaryOperator.SubtractionAssignment, '-='],
+  [o.BinaryOperator.MultiplicationAssignment, '*='],
+  [o.BinaryOperator.DivisionAssignment, '/='],
+  [o.BinaryOperator.RemainderAssignment, '%='],
+  [o.BinaryOperator.ExponentiationAssignment, '**='],
+  [o.BinaryOperator.AndAssignment, '&&='],
+  [o.BinaryOperator.OrAssignment, '||='],
+  [o.BinaryOperator.NullishCoalesceAssignment, '??='],
+]);
+
 export class EmitterVisitorContext {
   static createRoot(): EmitterVisitorContext {
     return new EmitterVisitorContext(0);
@@ -178,6 +212,8 @@ export class EmitterVisitorContext {
 }
 
 export abstract class AbstractEmitterVisitor implements o.StatementVisitor, o.ExpressionVisitor {
+  private lastIfCondition: o.Expression | null = null;
+
   constructor(private _escapeDollarInStrings: boolean) {}
 
   protected printLeadingComments(stmt: o.Statement, ctx: EmitterVisitorContext): void {
@@ -217,7 +253,9 @@ export abstract class AbstractEmitterVisitor implements o.StatementVisitor, o.Ex
   visitIfStmt(stmt: o.IfStmt, ctx: EmitterVisitorContext): any {
     this.printLeadingComments(stmt, ctx);
     ctx.print(stmt, `if (`);
+    this.lastIfCondition = stmt.condition; // We can skip redundant parentheses for the condition.
     stmt.condition.visitExpression(this, ctx);
+    this.lastIfCondition = null;
     ctx.print(stmt, `) {`);
     const hasElseCase = stmt.falseCase != null && stmt.falseCase.length > 0;
     if (stmt.trueCase.length <= 1 && !hasElseCase) {
@@ -243,47 +281,6 @@ export abstract class AbstractEmitterVisitor implements o.StatementVisitor, o.Ex
 
   abstract visitDeclareVarStmt(stmt: o.DeclareVarStmt, ctx: EmitterVisitorContext): any;
 
-  visitWriteVarExpr(expr: o.WriteVarExpr, ctx: EmitterVisitorContext): any {
-    const lineWasEmpty = ctx.lineIsEmpty();
-    if (!lineWasEmpty) {
-      ctx.print(expr, '(');
-    }
-    ctx.print(expr, `${expr.name} = `);
-    expr.value.visitExpression(this, ctx);
-    if (!lineWasEmpty) {
-      ctx.print(expr, ')');
-    }
-    return null;
-  }
-  visitWriteKeyExpr(expr: o.WriteKeyExpr, ctx: EmitterVisitorContext): any {
-    const lineWasEmpty = ctx.lineIsEmpty();
-    if (!lineWasEmpty) {
-      ctx.print(expr, '(');
-    }
-    expr.receiver.visitExpression(this, ctx);
-    ctx.print(expr, `[`);
-    expr.index.visitExpression(this, ctx);
-    ctx.print(expr, `] = `);
-    expr.value.visitExpression(this, ctx);
-    if (!lineWasEmpty) {
-      ctx.print(expr, ')');
-    }
-    return null;
-  }
-  visitWritePropExpr(expr: o.WritePropExpr, ctx: EmitterVisitorContext): any {
-    const lineWasEmpty = ctx.lineIsEmpty();
-    if (!lineWasEmpty) {
-      ctx.print(expr, '(');
-    }
-    expr.receiver.visitExpression(this, ctx);
-    ctx.print(expr, `.${expr.name} = `);
-    expr.value.visitExpression(this, ctx);
-    if (!lineWasEmpty) {
-      ctx.print(expr, ')');
-    }
-    return null;
-  }
-
   visitInvokeFunctionExpr(expr: o.InvokeFunctionExpr, ctx: EmitterVisitorContext): any {
     const shouldParenthesize = expr.fn instanceof o.ArrowFunctionExpr;
 
@@ -299,22 +296,39 @@ export abstract class AbstractEmitterVisitor implements o.StatementVisitor, o.Ex
     ctx.print(expr, `)`);
     return null;
   }
-  visitTaggedTemplateExpr(expr: o.TaggedTemplateExpr, ctx: EmitterVisitorContext): any {
+  visitTaggedTemplateLiteralExpr(
+    expr: o.TaggedTemplateLiteralExpr,
+    ctx: EmitterVisitorContext,
+  ): any {
     expr.tag.visitExpression(this, ctx);
-    ctx.print(expr, '`' + expr.template.elements[0].rawText);
-    for (let i = 1; i < expr.template.elements.length; i++) {
-      ctx.print(expr, '${');
-      expr.template.expressions[i - 1].visitExpression(this, ctx);
-      ctx.print(expr, `}${expr.template.elements[i].rawText}`);
+    expr.template.visitExpression(this, ctx);
+    return null;
+  }
+  visitTemplateLiteralExpr(expr: o.TemplateLiteralExpr, ctx: EmitterVisitorContext) {
+    ctx.print(expr, '`');
+    for (let i = 0; i < expr.elements.length; i++) {
+      expr.elements[i].visitExpression(this, ctx);
+      const expression = i < expr.expressions.length ? expr.expressions[i] : null;
+      if (expression !== null) {
+        ctx.print(expression, '${');
+        expression.visitExpression(this, ctx);
+        ctx.print(expression, '}');
+      }
     }
     ctx.print(expr, '`');
-    return null;
+  }
+  visitTemplateLiteralElementExpr(expr: o.TemplateLiteralElementExpr, ctx: EmitterVisitorContext) {
+    ctx.print(expr, expr.rawText);
   }
   visitWrappedNodeExpr(ast: o.WrappedNodeExpr<any>, ctx: EmitterVisitorContext): any {
     throw new Error('Abstract emitter cannot visit WrappedNodeExpr.');
   }
   visitTypeofExpr(expr: o.TypeofExpr, ctx: EmitterVisitorContext): any {
     ctx.print(expr, 'typeof ');
+    expr.expr.visitExpression(this, ctx);
+  }
+  visitVoidExpr(expr: o.VoidExpr, ctx: EmitterVisitorContext): any {
+    ctx.print(expr, 'void ');
     expr.expr.visitExpression(this, ctx);
   }
   visitReadVarExpr(ast: o.ReadVarExpr, ctx: EmitterVisitorContext): any {
@@ -337,6 +351,14 @@ export abstract class AbstractEmitterVisitor implements o.StatementVisitor, o.Ex
     } else {
       ctx.print(ast, `${value}`);
     }
+    return null;
+  }
+
+  visitRegularExpressionLiteral(
+    ast: o.RegularExpressionLiteralExpr,
+    ctx: EmitterVisitorContext,
+  ): any {
+    ctx.print(ast, `/${ast.body}/${ast.flags || ''}`);
     return null;
   }
 
@@ -390,78 +412,25 @@ export abstract class AbstractEmitterVisitor implements o.StatementVisitor, o.Ex
       default:
         throw new Error(`Unknown operator ${ast.operator}`);
     }
-    if (ast.parens) ctx.print(ast, `(`);
+    const parens = ast !== this.lastIfCondition;
+    if (parens) ctx.print(ast, `(`);
     ctx.print(ast, opStr);
     ast.expr.visitExpression(this, ctx);
-    if (ast.parens) ctx.print(ast, `)`);
+    if (parens) ctx.print(ast, `)`);
     return null;
   }
 
   visitBinaryOperatorExpr(ast: o.BinaryOperatorExpr, ctx: EmitterVisitorContext): any {
-    let opStr: string;
-    switch (ast.operator) {
-      case o.BinaryOperator.Equals:
-        opStr = '==';
-        break;
-      case o.BinaryOperator.Identical:
-        opStr = '===';
-        break;
-      case o.BinaryOperator.NotEquals:
-        opStr = '!=';
-        break;
-      case o.BinaryOperator.NotIdentical:
-        opStr = '!==';
-        break;
-      case o.BinaryOperator.And:
-        opStr = '&&';
-        break;
-      case o.BinaryOperator.BitwiseOr:
-        opStr = '|';
-        break;
-      case o.BinaryOperator.BitwiseAnd:
-        opStr = '&';
-        break;
-      case o.BinaryOperator.Or:
-        opStr = '||';
-        break;
-      case o.BinaryOperator.Plus:
-        opStr = '+';
-        break;
-      case o.BinaryOperator.Minus:
-        opStr = '-';
-        break;
-      case o.BinaryOperator.Divide:
-        opStr = '/';
-        break;
-      case o.BinaryOperator.Multiply:
-        opStr = '*';
-        break;
-      case o.BinaryOperator.Modulo:
-        opStr = '%';
-        break;
-      case o.BinaryOperator.Lower:
-        opStr = '<';
-        break;
-      case o.BinaryOperator.LowerEquals:
-        opStr = '<=';
-        break;
-      case o.BinaryOperator.Bigger:
-        opStr = '>';
-        break;
-      case o.BinaryOperator.BiggerEquals:
-        opStr = '>=';
-        break;
-      case o.BinaryOperator.NullishCoalesce:
-        opStr = '??';
-        break;
-      default:
-        throw new Error(`Unknown operator ${ast.operator}`);
+    const operator = BINARY_OPERATORS.get(ast.operator);
+    if (!operator) {
+      throw new Error(`Unknown operator ${ast.operator}`);
     }
-    if (ast.parens) ctx.print(ast, `(`);
+    const parens = ast !== this.lastIfCondition;
+    if (parens) ctx.print(ast, `(`);
     ast.lhs.visitExpression(this, ctx);
-    ctx.print(ast, ` ${opStr} `);
+    ctx.print(ast, ` ${operator} `);
     ast.rhs.visitExpression(this, ctx);
-    if (ast.parens) ctx.print(ast, `)`);
+    if (parens) ctx.print(ast, `)`);
     return null;
   }
 
@@ -488,11 +457,16 @@ export abstract class AbstractEmitterVisitor implements o.StatementVisitor, o.Ex
     ctx.print(ast, `{`);
     this.visitAllObjects(
       (entry) => {
-        ctx.print(
-          ast,
-          `${escapeIdentifier(entry.key, this._escapeDollarInStrings, entry.quoted)}:`,
-        );
-        entry.value.visitExpression(this, ctx);
+        if (entry instanceof o.LiteralMapSpreadAssignment) {
+          ctx.print(ast, '...');
+          entry.expression.visitExpression(this, ctx);
+        } else {
+          ctx.print(
+            ast,
+            `${escapeIdentifier(entry.key, this._escapeDollarInStrings, entry.quoted)}:`,
+          );
+          entry.value.visitExpression(this, ctx);
+        }
       },
       ast.entries,
       ctx,
@@ -506,6 +480,16 @@ export abstract class AbstractEmitterVisitor implements o.StatementVisitor, o.Ex
     this.visitAllExpressions(ast.parts, ctx, ',');
     ctx.print(ast, ')');
     return null;
+  }
+  visitParenthesizedExpr(ast: o.ParenthesizedExpr, ctx: EmitterVisitorContext): any {
+    // We parenthesize everything regardless of an explicit ParenthesizedExpr, so we can just visit
+    // the inner expression.
+    // TODO: Do we *need* to parenthesize everything?
+    ast.expr.visitExpression(this, ctx);
+  }
+  visitSpreadElementExpr(ast: o.SpreadElementExpr, ctx: EmitterVisitorContext) {
+    ctx.print(ast, '...');
+    ast.expression.visitExpression(this, ctx);
   }
   visitAllExpressions(
     expressions: o.Expression[],

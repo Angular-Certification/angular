@@ -3,16 +3,17 @@
  * Copyright Google LLC All Rights Reserved.
  *
  * Use of this source code is governed by an MIT-style license that can be
- * found in the LICENSE file at https://angular.io/license
+ * found in the LICENSE file at https://angular.dev/license
  */
 
 import {ɵenableProfiling} from '@angular/core';
-import {bootstrapApplication} from '@angular/platform-browser';
+import {bootstrapApplication, BootstrapContext} from '@angular/platform-browser';
 import {AppComponent} from './app/app.component';
 import {config} from './app/app.config.server';
 import {renderApplication, ɵENABLE_DOM_EMULATION} from '@angular/platform-server';
 
-const bootstrap = () => bootstrapApplication(AppComponent, config);
+const bootstrap = (context: BootstrapContext) =>
+  bootstrapApplication(AppComponent, config, context);
 
 /**
  * Function that will profile the server-side rendering

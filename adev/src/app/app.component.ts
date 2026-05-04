@@ -11,13 +11,12 @@ import {
   ChangeDetectionStrategy,
   Component,
   inject,
-  OnInit,
   PLATFORM_ID,
   signal,
-  WritableSignal,
+  isDevMode,
 } from '@angular/core';
 import {NavigationEnd, NavigationSkipped, Router, RouterOutlet} from '@angular/router';
-import {filter, map, skip} from 'rxjs/operators';
+import {filter, map} from 'rxjs/operators';
 import {
   CookiePopup,
   getActivatedRouteSnapshotFromRouter,
@@ -51,19 +50,18 @@ import {HeaderService} from './core/services/header.service';
     '(window:keydown)': 'setSearchDialogVisibilityOnKeyPress($event)',
   },
 })
-export class AppComponent implements OnInit {
+export class AppComponent {
   private readonly document = inject(DOCUMENT);
   private readonly router = inject(Router);
   private readonly headerService = inject(HeaderService);
 
-  currentUrl = signal('');
-  displayFooter = signal(false);
-  displaySecondaryNav = signal(false);
-  displaySearchDialog: WritableSignal<boolean> = inject(IS_SEARCH_DIALOG_OPEN);
+  protected isBrowser = isPlatformBrowser(inject(PLATFORM_ID));
 
-  isBrowser = isPlatformBrowser(inject(PLATFORM_ID));
+  protected readonly displaySecondaryNav = signal(false);
+  protected readonly displayFooter = signal(false);
+  protected readonly displaySearchDialog = inject(IS_SEARCH_DIALOG_OPEN);
 
-  ngOnInit(): void {
+  constructor() {
     this.closeSearchDialogOnNavigationSkipped();
     this.router.events
       .pipe(
@@ -71,35 +69,32 @@ export class AppComponent implements OnInit {
         map((event) => event.urlAfterRedirects),
       )
       .subscribe((url) => {
-        this.currentUrl.set(url);
-        this.setComponentsVisibility();
-        this.displaySearchDialog.set(false);
+        // We can't use an input binded to the route here
+        // because AppComponent itself is not a routed component
+        // so we access it via the snapshot
+        const activatedRoute = getActivatedRouteSnapshotFromRouter(this.router);
+        this.displayFooter.set(!activatedRoute.data['hideFooter']);
+        this.displaySecondaryNav.set(activatedRoute.data['displaySecondaryNav']);
 
+        this.displaySearchDialog.set(false);
         this.updateCanonicalLink(url);
       });
   }
 
-  focusFirstHeading(): void {
-    if (!this.isBrowser) {
+  protected focusFirstHeading(): void {
+    const main = this.document.querySelector<HTMLElement>('main');
+    if (main) {
+      main.setAttribute('tabindex', '-1');
+      main.focus();
       return;
     }
 
+    // Fallback: focus the first h1 (legacy support for pages without main)
     const h1 = this.document.querySelector<HTMLHeadingElement>('h1:not(docs-top-level-banner h1)');
     h1?.focus();
   }
 
-  private updateCanonicalLink(absoluteUrl: string) {
-    this.headerService.setCanonical(absoluteUrl);
-  }
-
-  private setComponentsVisibility(): void {
-    const activatedRoute = getActivatedRouteSnapshotFromRouter(this.router as any);
-
-    this.displaySecondaryNav.set(activatedRoute.data['displaySecondaryNav']);
-    this.displayFooter.set(!activatedRoute.data['hideFooter']);
-  }
-
-  private setSearchDialogVisibilityOnKeyPress(event: KeyboardEvent): void {
+  protected setSearchDialogVisibilityOnKeyPress(event: KeyboardEvent): void {
     if (event.key === SEARCH_TRIGGER_KEY && (event.metaKey || event.ctrlKey)) {
       event.preventDefault();
       this.displaySearchDialog.update((display) => !display);
@@ -109,6 +104,17 @@ export class AppComponent implements OnInit {
       event.preventDefault();
       this.displaySearchDialog.set(false);
     }
+
+    if (isDevMode() && event.key === 'o' && (event.metaKey || event.ctrlKey)) {
+      // In debug this shortcut allows us to open the same page on adev
+      // Helpful to compare differences
+      event.preventDefault();
+      window.open(`https://angular.dev/${location.pathname}`, '_blank');
+    }
+  }
+
+  private updateCanonicalLink(absoluteUrl: string) {
+    this.headerService.setCanonical(absoluteUrl);
   }
 
   private closeSearchDialogOnNavigationSkipped(): void {

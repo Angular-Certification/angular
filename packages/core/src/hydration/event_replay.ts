@@ -16,14 +16,13 @@ import {
   getAppScopedQueuedEventInfos,
   clearAppScopedEarlyEventContract,
   EventPhase,
-} from '@angular/core/primitives/event-dispatch';
+} from '../../primitives/event-dispatch';
 
 import {APP_BOOTSTRAP_LISTENER, ApplicationRef} from '../application/application_ref';
 import {ENVIRONMENT_INITIALIZER, Injector} from '../di';
 import {inject} from '../di/injector_compatibility';
 import {Provider} from '../di/interface/provider';
-import {setStashFn} from '../render3/instructions/listener';
-import {RElement} from '../render3/interfaces/renderer_dom';
+import {RElement, RNode} from '../render3/interfaces/renderer_dom';
 import {CLEANUP, LView, TView} from '../render3/interfaces/view';
 import {unwrapRNode} from '../render3/util/view_utils';
 
@@ -31,6 +30,8 @@ import {
   JSACTION_BLOCK_ELEMENT_MAP,
   EVENT_REPLAY_ENABLED_DEFAULT,
   IS_EVENT_REPLAY_ENABLED,
+  EVENT_REPLAY_QUEUE,
+  EventReplayQueue,
 } from './tokens';
 import {
   sharedStashFunction,
@@ -40,6 +41,8 @@ import {
   JSACTION_EVENT_CONTRACT,
   invokeListeners,
   removeListeners,
+  enableStashEventListenerImpl,
+  setStashFn,
 } from '../event_delegation_utils';
 import {APP_ID} from '../application/application_tokens';
 import {performanceMarkFeature} from '../util/performance';
@@ -57,11 +60,6 @@ const appsWithEventReplay = new WeakSet<ApplicationRef>();
 const EAGER_CONTENT_LISTENERS_KEY = '';
 
 /**
- * A list of block events that need to be replayed
- */
-let blockEventQueue: {event: Event; currentTarget: Element}[] = [];
-
-/**
  * Determines whether Event Replay feature should be activated on the client.
  */
 function shouldEnableEventReplay(injector: Injector) {
@@ -71,6 +69,9 @@ function shouldEnableEventReplay(injector: Injector) {
 /**
  * Returns a set of providers required to setup support for event replay.
  * Requires hydration to be enabled separately.
+ *
+ * @see [Capturing and replaying event](guide/hydration#capturing-and-replaying-events)
+ *
  */
 export function withEventReplay(): Provider[] {
   const providers: Provider[] = [
@@ -98,18 +99,31 @@ export function withEventReplay(): Provider[] {
       {
         provide: ENVIRONMENT_INITIALIZER,
         useValue: () => {
-          const injector = inject(Injector);
-          const appRef = injector.get(ApplicationRef);
+          const appRef = inject(ApplicationRef);
+          const {injector} = appRef;
           // We have to check for the appRef here due to the possibility of multiple apps
           // being present on the same page. We only want to enable event replay for the
           // apps that actually want it.
           if (!appsWithEventReplay.has(appRef)) {
             const jsActionMap = inject(JSACTION_BLOCK_ELEMENT_MAP);
             if (shouldEnableEventReplay(injector)) {
-              setStashFn((rEl: RElement, eventName: string, listenerFn: VoidFunction) => {
-                sharedStashFunction(rEl, eventName, listenerFn);
-                sharedMapFunction(rEl, jsActionMap);
-              });
+              enableStashEventListenerImpl();
+              const appId = injector.get(APP_ID);
+              const clearStashFn = setStashFn(
+                appId,
+                (rEl: RNode, eventName: string, listenerFn: VoidFunction) => {
+                  // If a user binds to a ng-container and uses a directive that binds using a host listener,
+                  // this element could be a comment node. So we need to ensure we have an actual element
+                  // node before stashing anything.
+                  if ((rEl as Node).nodeType !== Node.ELEMENT_NODE) return;
+                  sharedStashFunction(rEl as RElement, eventName, listenerFn);
+                  sharedMapFunction(rEl as RElement, jsActionMap);
+                },
+              );
+              // Clean up the reference to the function set by the environment initializer,
+              // as the function closure may capture injected elements and prevent them
+              // from being properly garbage collected.
+              appRef.onDestroy(clearStashFn);
             }
           }
         },
@@ -118,8 +132,9 @@ export function withEventReplay(): Provider[] {
       {
         provide: APP_BOOTSTRAP_LISTENER,
         useFactory: () => {
-          const injector = inject(Injector);
           const appRef = inject(ApplicationRef);
+          const {injector} = appRef;
+
           return () => {
             // We have to check for the appRef here due to the possibility of multiple apps
             // being present on the same page. We only want to enable event replay for the
@@ -129,12 +144,33 @@ export function withEventReplay(): Provider[] {
             }
 
             appsWithEventReplay.add(appRef);
-            appRef.onDestroy(() => appsWithEventReplay.delete(appRef));
+
+            const appId = injector.get(APP_ID);
+            appRef.onDestroy(() => {
+              appsWithEventReplay.delete(appRef);
+              // Ensure that we're always safe calling this in the browser.
+              if (typeof ngServerMode !== 'undefined' && !ngServerMode) {
+                // `_ejsa` should be deleted when the app is destroyed, ensuring that
+                // no elements are still captured in the global list and are not prevented
+                // from being garbage collected.
+                clearAppScopedEarlyEventContract(appId);
+              }
+            });
 
             // Kick off event replay logic once hydration for the initial part
             // of the application is completed. This timing is similar to the unclaimed
             // dehydrated views cleanup timing.
             appRef.whenStable().then(() => {
+              // Note: we have to check whether the application is destroyed before
+              // performing other operations with the `injector`.
+              // The application may be destroyed **before** it becomes stable, so when
+              // the `whenStable` resolves, the injector might already be in
+              // a destroyed state. Thus, calling `injector.get` would throw an error
+              // indicating that the injector has already been destroyed.
+              if (appRef.destroyed) {
+                return;
+              }
+
               const eventContractDetails = injector.get(JSACTION_EVENT_CONTRACT);
               initEventReplay(eventContractDetails, injector);
               const jsActionMap = injector.get(JSACTION_BLOCK_ELEMENT_MAP);
@@ -256,23 +292,25 @@ function hydrateAndInvokeBlockListeners(
   event: Event,
   currentTarget: Element,
 ) {
-  blockEventQueue.push({event, currentTarget});
-  triggerHydrationFromBlockName(injector, blockName, replayQueuedBlockEvents);
+  const queue = injector.get(EVENT_REPLAY_QUEUE);
+  queue.push({event, currentTarget});
+  triggerHydrationFromBlockName(injector, blockName, createReplayQueuedBlockEventsFn(queue));
 }
 
-function replayQueuedBlockEvents(hydratedBlocks: string[]) {
-  // clone the queue
-  const queue = [...blockEventQueue];
-  const hydrated = new Set<string>(hydratedBlocks);
-  // empty it
-  blockEventQueue = [];
-  for (let {event, currentTarget} of queue) {
-    const blockName = currentTarget.getAttribute(DEFER_BLOCK_SSR_ID_ATTRIBUTE)!;
-    if (hydrated.has(blockName)) {
-      invokeListeners(event, currentTarget);
-    } else {
-      // requeue events that weren't yet hydrated
-      blockEventQueue.push({event, currentTarget});
+function createReplayQueuedBlockEventsFn(queue: EventReplayQueue) {
+  return (hydratedBlocks: string[]) => {
+    const hydrated = new Set<string>(hydratedBlocks);
+    const newQueue: EventReplayQueue = [];
+    for (let {event, currentTarget} of queue) {
+      const blockName = currentTarget.getAttribute(DEFER_BLOCK_SSR_ID_ATTRIBUTE)!;
+      if (hydrated.has(blockName)) {
+        invokeListeners(event, currentTarget);
+      } else {
+        // requeue events that weren't yet hydrated
+        newQueue.push({event, currentTarget});
+      }
     }
-  }
+    queue.length = 0;
+    queue.push(...newQueue);
+  };
 }

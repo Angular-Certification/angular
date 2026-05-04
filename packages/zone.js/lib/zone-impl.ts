@@ -368,7 +368,6 @@ export declare interface ZonePrivate {
     metaCreator: (self: any, args: any[]) => any,
   ) => void;
   patchEventPrototype: (_global: any, api: ZonePrivate) => void;
-  isIEOrEdge: () => boolean;
   ObjectDefineProperty: (
     o: any,
     p: PropertyKey,
@@ -782,7 +781,6 @@ export function initZone(): ZoneType {
   mark('Zone');
 
   class ZoneImpl implements AmbientZone {
-    // tslint:disable-next-line:require-internal-with-underscore
     static __symbol__: (name: string) => string = __symbol__;
 
     static assertZonePatched() {
@@ -813,7 +811,6 @@ export function initZone(): ZoneType {
       return _currentTask;
     }
 
-    // tslint:disable-next-line:require-internal-with-underscore
     static __load_patch(name: string, fn: PatchFn, ignoreDuplicate = false): void {
       if (patches.hasOwnProperty(name)) {
         // `checkDuplicate` option is defined from global variable
@@ -1372,7 +1369,6 @@ export function initZone(): ZoneType {
       }
     }
 
-    // tslint:disable-next-line:require-internal-with-underscore
     _updateTaskCount(type: TaskType, count: number) {
       const counts = this._taskCounts;
       const prev = counts[type];
@@ -1400,12 +1396,9 @@ export function initZone(): ZoneType {
     public data: TaskData | undefined;
     public scheduleFn: ((task: Task) => void) | undefined;
     public cancelFn: ((task: Task) => void) | undefined;
-    // tslint:disable-next-line:require-internal-with-underscore
     _zone: ZoneImpl | null = null;
     public runCount: number = 0;
-    // tslint:disable-next-line:require-internal-with-underscore
     _zoneDelegates: _ZoneDelegate[] | null = null;
-    // tslint:disable-next-line:require-internal-with-underscore
     _state: TaskState = 'notScheduled';
 
     constructor(
@@ -1464,7 +1457,6 @@ export function initZone(): ZoneType {
       this._transitionTo(notScheduled, scheduling);
     }
 
-    // tslint:disable-next-line:require-internal-with-underscore
     _transitionTo(toState: TaskState, fromState1: TaskState, fromState2?: TaskState) {
       if (this._state === fromState1 || this._state === fromState2) {
         this._state = toState;
@@ -1596,7 +1588,6 @@ export function initZone(): ZoneType {
     patchThen: () => noop,
     patchMacroTask: () => noop,
     patchEventPrototype: () => noop,
-    isIEOrEdge: () => false,
     getGlobalObjects: () => undefined,
     ObjectDefineProperty: () => noop,
     ObjectGetOwnPropertyDescriptor: () => undefined,

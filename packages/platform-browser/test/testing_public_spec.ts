@@ -34,13 +34,14 @@ import {
   waitForAsync,
   withModule,
 } from '@angular/core/testing';
-import {expect} from '@angular/platform-browser/testing/src/matchers';
+import {expect} from '@angular/private/testing/matchers';
+import {isBrowser} from '@angular/private/testing';
 
 // Services, and components for the tests.
 
 @Component({
   selector: 'child-comp',
-  template: `<span>Original {{childBinding}}</span>`,
+  template: `<span>Original {{ childBinding }}</span>`,
   standalone: false,
 })
 @Injectable()
@@ -102,7 +103,7 @@ class MockFancyService extends FancyService {
 @Component({
   selector: 'my-service-comp',
   providers: [FancyService],
-  template: `injected value: {{fancyService.value}}`,
+  template: `injected value: {{ fancyService.value }}`,
   standalone: false,
 })
 class TestProvidersComp {
@@ -112,7 +113,7 @@ class TestProvidersComp {
 @Component({
   selector: 'my-service-comp',
   viewProviders: [FancyService],
-  template: `injected value: {{fancyService.value}}`,
+  template: `injected value: {{ fancyService.value }}`,
   standalone: false,
 })
 class TestViewProvidersComp {
@@ -140,7 +141,7 @@ class SomePipe {
 
 @Component({
   selector: 'comp',
-  template: `<div  [someDir]="'someValue' | somePipe"></div>`,
+  template: `<div [someDir]="'someValue' | somePipe"></div>`,
   standalone: false,
 })
 class CompUsingModuleDirectiveAndPipe {}
@@ -527,7 +528,7 @@ describe('public testing API', () => {
             'resolveComponentFactory',
           ]);
           TestBed.overrideProvider(ComponentFactoryResolver, {useValue: componentFactoryMock});
-          expect(TestBed.get(ComponentFactoryResolver)).toEqual(componentFactoryMock);
+          expect(TestBed.inject(ComponentFactoryResolver)).toEqual(componentFactoryMock);
         });
       });
 
@@ -598,7 +599,9 @@ describe('public testing API', () => {
 
           const compiler = TestBed.inject(Compiler);
           const modFactory = compiler.compileModuleSync(MyModule);
-          expect(modFactory.create(getTestBed()).injector.get(aTok)).toBe('mockA: parentDepValue');
+          expect(modFactory.create(TestBed.inject(Injector)).injector.get(aTok)).toBe(
+            'mockA: parentDepValue',
+          );
         });
 
         it('should keep imported NgModules eager', () => {
@@ -1070,6 +1073,7 @@ Did you run and wait for 'resolveComponentResources()'?`);
       expect(componentFixture.nativeElement).toHaveText('MyIf()');
 
       componentFixture.componentInstance.showMore = true;
+      componentFixture.changeDetectorRef.markForCheck();
       componentFixture.detectChanges();
       expect(componentFixture.nativeElement).toHaveText('MyIf(More)');
     }));
@@ -1099,6 +1103,32 @@ Did you run and wait for 'resolveComponentResources()'?`);
       componentFixture.detectChanges();
       expect(componentFixture.nativeElement).toHaveText('injected value: mocked out value');
     }));
+
+    describe('getFixture', () => {
+      it('should return the last created fixture', () => {
+        const fixture = TestBed.createComponent(ChildComp);
+        expect(TestBed.getFixture()).toBe(fixture);
+      });
+
+      it('should throw if no fixture has been created', () => {
+        expect(() => TestBed.getFixture()).toThrowError('No fixture has been created yet.');
+      });
+
+      it('should throw an error if multiple fixtures are present', () => {
+        TestBed.createComponent(ChildComp);
+        TestBed.createComponent(ParentComp);
+        expect(() => TestBed.getFixture()).toThrowError(
+          `More than one component fixture has been created. Use \`TestBed.createComponent\` ` +
+            `and store the fixture on the test context, rather than using \`TestBed.getFixture\`.`,
+        );
+      });
+
+      it('should clear the fixture after reset', () => {
+        TestBed.createComponent(ChildComp);
+        TestBed.resetTestingModule();
+        expect(() => TestBed.getFixture()).toThrowError('No fixture has been created yet.');
+      });
+    });
   });
   describe('using alternate components', () => {
     beforeEach(() => {
