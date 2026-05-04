@@ -60,6 +60,7 @@ jobs:
           ALIAS=$(node -e "console.log('${{github.run_id}} ${{github.event.number}} ${{github.event.pull_request.title}}'.replaceAll(' ','-').substring(0,37))")
           echo "Alias: $ALIAS"
           netlify deploy \
+            --site $NETLIFY_SITE_ID \
             --dir ./dist/bin/adev/dist/browser \
             --skip-functions-cache \
             --alias $ALIAS \

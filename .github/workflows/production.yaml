@@ -57,6 +57,7 @@ jobs:
       - name: Deploy Project Artifacts to Netlify
         run: |
           netlify deploy \
+            --site $NETLIFY_SITE_ID \
             --dir ./dist/bin/adev/dist/browser \
             --skip-functions-cache \
             --prod \
