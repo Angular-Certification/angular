@@ -47,18 +47,21 @@ jobs:
 
       - name: Prepare deploy directory
         run: |
-          chmod -R u+w ./dist/bin/adev/dist/browser
-          mv ./dist/bin/adev/dist/browser/index.csr.html ./dist/bin/adev/dist/browser/index.html
-          cp ./_redirects ./dist/bin/adev/dist/browser/_redirects
+          mkdir -p /tmp/netlify-deploy
+          cp -RL ./dist/bin/adev/dist/browser /tmp/netlify-deploy/browser
+          chmod -R u+w /tmp/netlify-deploy/browser
+          mv /tmp/netlify-deploy/browser/index.csr.html /tmp/netlify-deploy/browser/index.html
+          cp ./_redirects /tmp/netlify-deploy/browser/_redirects
 
       - name: Install Netlify CLI
         run: pnpm add -g netlify-cli@17.23
 
       - name: Deploy Project Artifacts to Netlify
+        working-directory: /tmp/netlify-deploy
         run: |
           netlify deploy \
             --site $NETLIFY_SITE_ID \
-            --dir ./dist/bin/adev/dist/browser \
+            --dir ./browser \
             --skip-functions-cache \
             --prod \
             --message "Action-${{ github.ref_name }}-${{ github.event.head_commit.message }}"
