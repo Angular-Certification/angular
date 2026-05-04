@@ -1,4 +1,5 @@
 name: Netlify Preview Deployment
+
 on:
   pull_request:
     branches:
@@ -9,7 +10,7 @@ env:
   NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}
 
 jobs:
-  Deploy-Preview-Shared:
+  Deploy-Preview:
     runs-on: ubuntu-latest
     environment: Preview
 
@@ -19,44 +20,48 @@ jobs:
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
-          version: 10.30.3
           run_install: false
 
       - name: Use Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '24.x'
+          node-version-file: '.nvmrc'
           cache: 'pnpm'
 
       - name: Setup Bazel
         uses: bazel-contrib/setup-bazel@0.18.0
         with:
-          # Avoid downloading Bazel every time.
           bazelisk-cache: true
           repository-cache: true
 
-      - name: Install node modules
+      - name: Install Dependencies
         run: pnpm install --frozen-lockfile
-
-      - name: Install Netlify CLI
-        run: pnpm add -g netlify-cli@17.23
 
       - name: Set environment variables from secrets and create .env file
         run: |
           echo "${{ vars.ENV_FILE }}" > .env
 
-      - name: Build Project Artifacts
-        run: pnpm bazel build //adev:build
+      - name: Build adev
+        run: pnpm exec bazel build //adev:build
+
+      - name: Prepare deploy directory
+        run: |
+          chmod -R u+w ./dist/bin/adev/dist/browser
+          mv ./dist/bin/adev/dist/browser/index.csr.html ./dist/bin/adev/dist/browser/index.html
+          cp ./_redirects ./dist/bin/adev/dist/browser/_redirects
+
+      - name: Install Netlify CLI
+        run: pnpm add -g netlify-cli@17.23
 
       - name: Deploy Project Artifacts to Netlify
         run: |
           echo "Calculating meaningful string as alias"
           ALIAS=$(node -e "console.log('${{github.run_id}} ${{github.event.number}} ${{github.event.pull_request.title}}'.replaceAll(' ','-').substring(0,37))")
           echo "Alias: $ALIAS"
-            netlify deploy \
-            --dir ./adev/dist/browser \
+          netlify deploy \
+            --dir ./dist/bin/adev/dist/browser \
             --skip-functions-cache \
             --alias $ALIAS \
-            --message "GH Action-${{env.BRANCH_NAME}}-${{github.event.number}}_${{github.event.pull_request.title}}" \
+            --message "GH Action-${{github.ref_name}}-${{github.event.number}}_${{github.event.pull_request.title}}" \
             --json \
             > ./deploy_output.json

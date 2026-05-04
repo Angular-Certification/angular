@@ -4,14 +4,13 @@ on:
   push:
     branches:
       - main
-      - master
 
 env:
   NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_API_TOKEN }}
   NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}
 
 jobs:
-  Deploy-Production-Shared:
+  Deploy-Production:
     runs-on: ubuntu-latest
     environment: Production
 
@@ -21,38 +20,43 @@ jobs:
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
-          version: 10.30.3
           run_install: false
 
       - name: Use Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '24.x'
+          node-version-file: '.nvmrc'
           cache: 'pnpm'
 
       - name: Setup Bazel
-        uses: angular/dev-infra/github-actions/bazel/setup@9a88f495971c09574545e0ea0c2f6228b851e77a
+        uses: bazel-contrib/setup-bazel@0.18.0
+        with:
+          bazelisk-cache: true
+          repository-cache: true
 
-      - name: Install node modules
+      - name: Install Dependencies
         run: pnpm install --frozen-lockfile
-
-      - name: Install Netlify CLI
-        run: pnpm add -g netlify-cli@17.23
 
       - name: Set environment variables from secrets and create .env file
         run: |
           echo "${{ vars.ENV_FILE }}" > .env
 
-      - name: Build Project Artifacts
-        run: pnpm bazel build //adev:build
+      - name: Build adev
+        run: pnpm exec bazel build //adev:build
 
-      - name: Rename index.csr.html
-        run: mv ./dist/bin/adev/build/browser/index.csr.html ./dist/bin/adev/build/browser/index.html
+      - name: Prepare deploy directory
+        run: |
+          chmod -R u+w ./dist/bin/adev/dist/browser
+          mv ./dist/bin/adev/dist/browser/index.csr.html ./dist/bin/adev/dist/browser/index.html
+          cp ./_redirects ./dist/bin/adev/dist/browser/_redirects
+
+      - name: Install Netlify CLI
+        run: pnpm add -g netlify-cli@17.23
 
       - name: Deploy Project Artifacts to Netlify
         run: |
           netlify deploy \
-            --dir ./adev/dist/browser \
+            --dir ./dist/bin/adev/dist/browser \
             --skip-functions-cache \
             --prod \
             --message "Action-${{ github.ref_name }}-${{ github.event.head_commit.message }}"
