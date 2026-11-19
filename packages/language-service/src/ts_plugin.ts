@@ -11,12 +11,16 @@ import type ts from 'typescript';
 import {
   ApplyRefactoringProgressFn,
   ApplyRefactoringResult,
+  DocumentSymbolsOptions,
   GetComponentLocationsForTemplateResponse,
   GetTcbResponse,
   GetTemplateLocationForComponentResponse,
   isNgLanguageService,
   LinkedEditingRanges,
   NgLanguageService,
+  AngularInlayHint,
+  InlayHintsConfig,
+  TemplateDocumentSymbol,
 } from '../api';
 
 import {LanguageService} from './language_service';
@@ -220,6 +224,23 @@ export function create(info: ts.server.PluginCreateInfo): NgLanguageService {
     return withFallback(fileName, (ls) => ls.getOutliningSpans(fileName)) ?? [];
   }
 
+  function getSmartSelectionRange(fileName: string, position: number): ts.SelectionRange {
+    // `ts.LanguageService` requires a selection range for every position, so
+    // consumers that talk to tsserver directly get the TypeScript ranges
+    // outside of templates.
+    return (
+      ngLS.getTemplateSelectionRange(fileName, position) ??
+      tsLS.getSmartSelectionRange(fileName, position)
+    );
+  }
+
+  function getTemplateSelectionRange(
+    fileName: string,
+    position: number,
+  ): ts.SelectionRange | undefined {
+    return ngLS.getTemplateSelectionRange(fileName, position);
+  }
+
   function getTcb(fileName: string, position: number): GetTcbResponse | undefined {
     return ngLS.getTcb(fileName, position);
   }
@@ -350,6 +371,21 @@ export function create(info: ts.server.PluginCreateInfo): NgLanguageService {
     ngLS.ensureProjectAnalyzed();
   }
 
+  function getAngularInlayHints(
+    fileName: string,
+    span: ts.TextSpan,
+    config?: InlayHintsConfig,
+  ): AngularInlayHint[] {
+    return ngLS.provideInlayHints(fileName, span, config);
+  }
+
+  function getTemplateDocumentSymbols(
+    fileName: string,
+    options?: DocumentSymbolsOptions,
+  ): TemplateDocumentSymbol[] {
+    return ngLS.getTemplateDocumentSymbols(fileName, options);
+  }
+
   return {
     ...tsLS,
     ensureProjectAnalyzed,
@@ -374,7 +410,10 @@ export function create(info: ts.server.PluginCreateInfo): NgLanguageService {
     getComponentLocationsForTemplate,
     getSignatureHelpItems,
     getOutliningSpans,
+    getSmartSelectionRange,
+    getTemplateSelectionRange,
     getTemplateLocationForComponent,
+    getTemplateDocumentSymbols,
     hasCodeFixesForErrorCode: ngLS.hasCodeFixesForErrorCode.bind(ngLS),
     getCodeFixesAtPosition,
     getCombinedCodeFix,
@@ -382,6 +421,7 @@ export function create(info: ts.server.PluginCreateInfo): NgLanguageService {
     getApplicableRefactors,
     applyRefactoring,
     getLinkedEditingRangeAtPosition,
+    getAngularInlayHints,
   };
 }
 

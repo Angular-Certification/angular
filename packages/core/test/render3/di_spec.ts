@@ -155,6 +155,8 @@ describe('di', () => {
           sanitizer: null,
           changeDetectionScheduler: null,
           ngReflect: false,
+          tracingService: null,
+          locale: 'en-us',
         },
         {} as any,
         null,

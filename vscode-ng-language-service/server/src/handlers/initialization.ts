@@ -19,6 +19,8 @@ export function onInitialize(session: Session, params: lsp.InitializeParams): ls
   return {
     capabilities: {
       foldingRangeProvider: true,
+      documentSymbolProvider: true,
+      selectionRangeProvider: true,
       codeLensProvider: {resolveProvider: true},
       textDocumentSync: lsp.TextDocumentSyncKind.Incremental,
       completionProvider: {
@@ -51,6 +53,11 @@ export function onInitialize(session: Session, params: lsp.InitializeParams): ls
         // Find more info
         // [here](https://github.com/angular/vscode-ng-language-service/issues/1828)
         codeActionKinds: [lsp.CodeActionKind.QuickFix],
+      },
+      // Inlay hints provider (LSP 3.17)
+      // Provides type annotations for template variables, $event types, etc.
+      inlayHintProvider: {
+        resolveProvider: true,
       },
     },
     serverOptions,

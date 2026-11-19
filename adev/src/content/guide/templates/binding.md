@@ -54,13 +54,13 @@ Continuing the theme example, if a user clicks on a button that updates the `the
 
 You can use text interpolation anywhere you would normally write text in HTML.
 
-All expression values are converted to a string. Objects and arrays are converted using the value’s `toString` method.
+Expression values are converted to a string. `null` and `undefined` render as an empty string. Objects and arrays are converted using the value’s `toString` method.
 
 ## Binding dynamic properties and attributes
 
 Angular supports binding dynamic values into object properties and HTML attributes with square brackets.
 
-You can bind to properties on an HTML element's DOM instance, a [component](guide/components) instance, or a [directive](guide/directives) instance.
+You can bind to properties on an HTML element's DOM instance, a [component](/guide/components) instance, or a [directive](/guide/directives) instance.
 
 ### Native element properties
 
@@ -103,7 +103,7 @@ When you need to set HTML attributes that do not have corresponding DOM properti
 
 In this example, every time `listRole` changes, Angular automatically sets the `role` attribute of the `<ul>` element by calling `setAttribute`.
 
-If the value of an attribute binding is `null`, Angular removes the attribute by calling `removeAttribute`.
+If the value of an attribute binding is `null` or `undefined`, Angular removes the attribute by calling `removeAttribute`.
 
 ### Text interpolation in properties and attributes
 
@@ -164,7 +164,7 @@ The above example renders the following DOM:
 <button class="highlighted"> ... </button>
 ```
 
-Angular ignores any string values that are not valid CSS class names.
+Angular splits a string value on whitespace and ignores empty strings.
 
 When using static CSS classes, directly binding `class`, and binding specific classes, Angular intelligently combines all of the classes in the rendered result.
 
@@ -244,7 +244,7 @@ The above example renders the following DOM.
 <section style="border: 1px solid black; font-weight: bold"> ... </section>
 ```
 
-When binding `style` to an object, Angular compares the previous value to the current value with the triple-equals operator (`===`). You must create a new object instance when you modify these values in order to Angular to apply any updates.
+When binding `style` to an object, Angular compares the previous value to the current value with the triple-equals operator (`===`). You must create a new object instance when you modify these values in order for Angular to apply any updates.
 
 If an element has multiple bindings for the same style property, Angular resolves collisions by following its style precedence order.
 
@@ -258,6 +258,6 @@ Angular supports binding string values to ARIA attributes.
 </button>
 ```
 
-Angular writes the string value to the element’s `aria-label` attribute and removes it when the bound value is `null`.
+Angular writes the string value to the element’s `aria-label` attribute and removes it when the bound value is `null` or `undefined`.
 
-Some ARIA features expose DOM properties or directive inputs that accept structured values (such as element references). Use standard property bindings for those cases. See the [accessibility guide](best-practices/a11y#aria-attributes-and-properties) for examples and additional guidance.
+Some ARIA features expose DOM properties or directive inputs that accept structured values (such as element references). Use standard property bindings for those cases. See the [accessibility guide](/best-practices/a11y#aria-attributes-and-properties) for examples and additional guidance.

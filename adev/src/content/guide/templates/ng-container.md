@@ -22,7 +22,7 @@
 
 You can apply directives to `<ng-container>` to add behaviors or configuration to a part of your template.
 
-Angular ignores all attribute bindings and event listeners applied to `<ng-container>`, including those applied via directive.
+Angular ignores class bindings, style bindings, DOM event listeners, and static attributes applied to `<ng-container>`, including those applied via directive. Attribute bindings cause errors, and property bindings only work for directive inputs.
 
 ## Using `<ng-container>` to display dynamic contents
 
@@ -71,11 +71,11 @@ export class UserProfile {
 
 In the example above, the `ngTemplateOutlet` directive dynamically renders one of two template fragments in the location of the `<ng-container>` element.
 
-For more information regarding NgTemplateOutlet, see the [NgTemplateOutlets API documentation page](/api/common/NgTemplateOutlet).
+For more information regarding `NgTemplateOutlet`, see the [NgTemplateOutlet API documentation page](/api/common/NgTemplateOutlet).
 
 ## Using `<ng-container>` with structural directives
 
-You can also apply structural directives to `<ng-container>` elements. Common examples of this include `ngIf`and `ngFor`.
+You can also apply structural directives to `<ng-container>` elements. Common examples of this include `ngIf` and `ngFor`.
 
 ```angular-html
 <ng-container *ngIf="permissions == 'admin'">
@@ -91,7 +91,7 @@ You can also apply structural directives to `<ng-container>` elements. Common ex
 
 ## Using `<ng-container>` for injection
 
-See the Dependency Injection guide for more information on Angular's dependency injection system.
+See the [Dependency Injection guide](/guide/di) for more information on Angular's dependency injection system.
 
 When you apply a directive to `<ng-container>`, descendant elements can inject the directive or anything that the directive provides. Use this when you want to declaratively provide a value to a specific part of your template.
 

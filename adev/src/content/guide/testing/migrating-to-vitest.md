@@ -69,16 +69,16 @@ You can now delete `karma.conf.js` and `src/test.ts` from your project and unins
 
 <docs-code-multifile>
   <docs-code header="npm" language="shell">
-    npm uninstall karma karma-chrome-launcher karma-coverage karma-jasmine karma-jasmine-html-reporter
+    npm uninstall karma karma-chrome-launcher karma-coverage karma-jasmine karma-jasmine-html-reporter jasmine-core
   </docs-code>
   <docs-code header="yarn" language="shell">
-    yarn remove karma karma-chrome-launcher karma-coverage karma-jasmine karma-jasmine-html-reporter
+    yarn remove karma karma-chrome-launcher karma-coverage karma-jasmine karma-jasmine-html-reporter jasmine-core
   </docs-code>
   <docs-code header="pnpm" language="shell">
-    pnpm remove karma karma-chrome-launcher karma-coverage karma-jasmine karma-jasmine-html-reporter
+    pnpm remove karma karma-chrome-launcher karma-coverage karma-jasmine karma-jasmine-html-reporter jasmine-core
   </docs-code>
   <docs-code header="bun" language="shell">
-    bun remove karma karma-chrome-launcher karma-coverage karma-jasmine karma-jasmine-html-reporter
+    bun remove karma karma-chrome-launcher karma-coverage karma-jasmine karma-jasmine-html-reporter jasmine-core
   </docs-code>
 </docs-code-multifile>
 
@@ -92,7 +92,7 @@ Choose one of the following browser providers based on your needs:
 
 - **Playwright**: `@vitest/browser-playwright` for Chromium, Firefox, and WebKit.
 - **WebdriverIO**: `@vitest/browser-webdriverio` for Chrome, Firefox, Safari, and Edge.
-- **Preview**: `@vitest/browser-preview` for Webcontainer environments (like StackBlitz).
+- **Preview**: `@vitest/browser-preview` for WebContainer environments (like StackBlitz).
 
 <docs-code-multifile>
   <docs-code header="npm" language="shell">
@@ -132,8 +132,6 @@ Add the `browsers` option to your `test` target's options. The browser name depe
 
 Headless mode is enabled automatically if the `CI` environment variable is set or if a browser name includes "Headless" (e.g., `ChromeHeadless`). Otherwise, tests will run in a headed browser.
 
-NOTE: Debugging with `ng test --debug` is not supported by browser mode.
-
 ## Automated test refactoring with schematics
 
 IMPORTANT: The `refactor-jasmine-vitest` schematic is experimental and may not cover all possible test patterns. Always review the changes made by the schematic.
@@ -151,7 +149,7 @@ The schematic automates the following transformations in your test files (`.spec
 - Replaces `jasmine.any` with `expect.any`.
 - Replaces `jasmine.createSpy` with `vi.fn`.
 - Updates `beforeAll`, `beforeEach`, `afterAll`, and `afterEach` to their Vitest equivalents.
-- Converts `fail()` to Vitest's `vi.fail()`.
+- Converts `fail()` to Vitest's `expect.fail()`.
 - Adjusts expectations to match Vitest APIs
 - Adds TODO comments for code that cannot be automatically converted
 
@@ -225,10 +223,13 @@ Provide a direct path to a Vitest configuration file in your `angular.json`:
 **2. Automatic search for base configuration:**
 If you set `runnerConfig` to `true`, the builder will automatically search for a shared `vitest-base.config.*` file in your project and workspace roots.
 
-## `zone.js` based helpers are not supported
+## `zone.js` Vitest patch
 
-The zone.js patches are not applied when running tests with Vitest, there for you won't be able use functions like `fakeAsync`, `flush` or `waitForAsync`.
-To migrate to Vitest you will also need to migrate your tests to native async and Vitest fake timers. See [an example here](/guide/testing/components-scenarios#async-test-with-a-vitest-fake-timers) for fake timers usages with Vitest.
+In order to use functions like `fakeAsync`, `flush` or `waitForAsync`, or to enable your existing tests to work with them, you can add `zone.js/plugins/vitest-patch` to your test target polyfills in `angular.json`.
+
+Regardless, we strongly recommend you start planning to convert your existing test suites to native `async` and Vitest fake timers, since this is the established approach.
+
+See [an example here](/guide/testing/components-scenarios#async-test-with-a-vitest-fake-timers) for fake timers usage with Vitest.
 
 ## Bug reports
 

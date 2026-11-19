@@ -10,16 +10,22 @@ import {GrammarDefinition} from './types';
 
 export const TemplateTag: GrammarDefinition = {
   scopeName: 'template.tag.ng',
-  injectionSelector: 'L:text.html#meta.tag -comment',
+  injectionSelector: 'L:text.html#meta.tag -comment -string',
   patterns: [
+    {include: '#inlineComments'},
+    {include: '#leadingSpace'},
     {include: '#twoWayBinding'},
     {include: '#propertyBinding'},
     {include: '#eventBinding'},
     {include: '#templateBinding'},
   ],
   repository: {
+    leadingSpace: {
+      match: /^\s+/,
+      name: 'template.tag.leading-space',
+    },
     propertyBinding: {
-      begin: /(\[\s*@?(?:[-_a-zA-Z0-9.$]+|\[[^\[\]]*]|\([^()]*\))*%?\s*])(=)(["'])/,
+      begin: /(\[\s*@?(?:[-_a-zA-Z0-9.$:!\/@]|\[[^\[\]]*]|\([^()]*\))*%?\s*])(=)(["'])/,
       beginCaptures: {
         1: {
           name: 'entity.other.attribute-name.html entity.other.ng-binding-name.property.html',
@@ -102,7 +108,7 @@ export const TemplateTag: GrammarDefinition = {
       patterns: [
         {
           match:
-            /([\[\(]{1,2}|\*)(?:\s*)(@?(?:[-_a-zA-Z0-9.$]+|\[[^\[\]]*]|\([^()]*\))*%?)(?:\s*)([\]\)]{1,2})?/,
+            /([\[\(]{1,2}|\*)(?:\s*)(@?(?:[-_a-zA-Z0-9.$:!\/@]|\[[^\[\]]*]|\([^()]*\))*%?)(?:\s*)([\]\)]{1,2})?/,
           captures: {
             1: {name: 'punctuation.definition.ng-binding-name.begin.html'},
             2: {
@@ -116,6 +122,22 @@ export const TemplateTag: GrammarDefinition = {
             },
             3: {name: 'punctuation.definition.ng-binding-name.end.html'},
           },
+        },
+      ],
+    },
+    inlineComments: {
+      patterns: [
+        {
+          begin: /\/\*/,
+          captures: {0: {name: 'punctuation.definition.comment.ts'}},
+          name: 'comment.block.ts',
+          end: /\*\//,
+        },
+        {
+          begin: /\/\//,
+          beginCaptures: {0: {name: 'punctuation.definition.comment.ts'}},
+          name: 'comment.line.double-slash.ts',
+          end: /(?=$)/,
         },
       ],
     },

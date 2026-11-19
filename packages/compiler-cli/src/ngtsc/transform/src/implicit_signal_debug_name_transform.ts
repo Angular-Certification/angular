@@ -12,9 +12,10 @@ function insertDebugNameIntoCallExpression(
   node: ts.CallExpression,
   debugName: string,
 ): ts.CallExpression {
-  const isRequired = isRequiredSignalFunction(node.expression);
+  const isRequiredInput = isRequiredInputFunction(node.expression);
   const hasNoArgs = node.arguments.length === 0;
-  const configPosition = hasNoArgs || isSignalWithObjectOnlyDefinition(node) || isRequired ? 0 : 1;
+  const configPosition =
+    hasNoArgs || isSignalWithObjectOnlyDefinition(node) || isRequiredInput ? 0 : 1;
   const existingArg =
     configPosition >= node.arguments.length ? null : node.arguments[configPosition];
 
@@ -62,21 +63,30 @@ function insertDebugNameIntoCallExpression(
 
     // If we're adding an argument, but the function requires a first argument (e.g. `input()`),
     // we have to add `undefined` before the debug literal.
-    if (hasNoArgs && !isRequired) {
+    if (hasNoArgs && !isRequiredInput) {
       spreadArgs.push(ts.factory.createIdentifier('undefined'));
     }
 
     spreadArgs.push(ts.factory.createObjectLiteralExpression([debugNameProperty]));
 
-    newArgs = [
-      ...node.arguments,
-      ts.factory.createSpreadElement(
-        createNgDevModeConditional(
-          ts.factory.createArrayLiteralExpression(spreadArgs),
-          ts.factory.createArrayLiteralExpression(),
-        ),
+    const spread = ts.factory.createSpreadElement(
+      createNgDevModeConditional(
+        ts.factory.createArrayLiteralExpression(spreadArgs),
+        ts.factory.createArrayLiteralExpression(),
       ),
-    ];
+    );
+
+    // Add a `ts-ignore` on the spread, because it may raise an error that we don't
+    // have a spread argument in the signature for the specific signal. We don't update
+    // the source to add the signature to avoid making it harder to read.
+    ts.addSyntheticLeadingComment(
+      spread,
+      ts.SyntaxKind.MultiLineCommentTrivia,
+      ' @ts-ignore ',
+      true,
+    );
+
+    newArgs = [...node.arguments, spread];
   }
 
   return ts.factory.updateCallExpression(node, node.expression, node.typeArguments, newArgs);
@@ -222,6 +232,7 @@ const signalFunctions: ReadonlyMap<string, PackageName> = new Map([
   ['contentChild', 'core'],
   ['contentChildren', 'core'],
   ['effect', 'core'],
+  ['afterRenderEffect', 'core'],
   ['resource', 'core'],
   ['httpResource', 'common'],
 ]);
@@ -288,15 +299,16 @@ function isSignalFunction(expression: ts.Identifier): boolean {
   return signalFunctions.has(text);
 }
 
-function isRequiredSignalFunction(expression: ts.Expression): boolean {
-  // Check for a property access expression that uses the 'required' property
+function isRequiredInputFunction(expression: ts.Expression): boolean {
+  // Check for a property access expression that uses the 'required' property on `input` or `model`
   if (
     ts.isPropertyAccessExpression(expression) &&
     ts.isIdentifier(expression.name) &&
     ts.isIdentifier(expression.expression)
   ) {
     const accessName = expression.name.text;
-    if (accessName === 'required') {
+    const parentName = expression.expression.text;
+    if (accessName === 'required' && (parentName === 'input' || parentName === 'model')) {
       return true;
     }
   }

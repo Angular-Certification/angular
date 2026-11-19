@@ -9,25 +9,40 @@ import {types as t} from '@babel/core';
 
 import {assert} from '../../../../linker';
 import {
+  AssignmentOperator,
   AstFactory,
   BinaryOperator,
+  BuiltInType,
   LeadingComment,
   ObjectLiteralProperty,
+  Parameter,
   SourceMapRange,
   TemplateLiteral,
+  UnaryOperator,
   VariableDeclarationType,
 } from '../../../../src/ngtsc/translator/src/api/ast_factory';
 
 /**
  * A Babel flavored implementation of the AstFactory.
  */
-export class BabelAstFactory implements AstFactory<t.Statement, t.Expression | t.SpreadElement> {
+export class BabelAstFactory implements AstFactory<
+  t.Statement,
+  t.Expression | t.SpreadElement,
+  t.TSType
+> {
+  private readonly typesEnabled: boolean;
+
   constructor(
     /** The absolute path to the source file being compiled. */
-    private sourceUrl: string,
-  ) {}
+    private sourcePath: string,
+  ) {
+    this.typesEnabled = sourcePath.endsWith('.ts') || sourcePath.endsWith('.mts');
+  }
 
-  attachComments(statement: t.Statement | t.Expression, leadingComments: LeadingComment[]): void {
+  attachComments(
+    statement: t.Statement | t.Expression | t.SpreadElement | t.ObjectProperty,
+    leadingComments: LeadingComment[],
+  ): void {
     // We must process the comments in reverse because `t.addComment()` will add new ones in front.
     for (let i = leadingComments.length - 1; i >= 0; i--) {
       const comment = leadingComments[i];
@@ -39,7 +54,7 @@ export class BabelAstFactory implements AstFactory<t.Statement, t.Expression | t
 
   createAssignment(
     target: t.Expression,
-    operator: BinaryOperator,
+    operator: AssignmentOperator,
     value: t.Expression,
   ): t.Expression {
     assert(target, isLExpression, 'must be a left hand side expression');
@@ -66,6 +81,12 @@ export class BabelAstFactory implements AstFactory<t.Statement, t.Expression | t
       case '&&=':
       case '||=':
       case '??=':
+      case '|=':
+      case '&=':
+      case '>>=':
+      case '>>>=':
+      case '<<=':
+      case '^=':
         throw new Error(`Unexpected assignment operator ${operator}`);
       default:
         return t.binaryExpression(operator, leftOperand, rightOperand);
@@ -73,6 +94,19 @@ export class BabelAstFactory implements AstFactory<t.Statement, t.Expression | t
   }
 
   createBlock = t.blockStatement;
+
+  createCallChain(
+    callee: t.Expression,
+    args: (t.Expression | t.SpreadElement)[],
+    pure: boolean,
+    isOptional: boolean,
+  ): t.Expression {
+    const call = t.optionalCallExpression(callee, args, /* optional */ isOptional);
+    if (pure) {
+      t.addComment(call, 'leading', ' @__PURE__ ', /* line */ false);
+    }
+    return call;
+  }
 
   createCallExpression(
     callee: t.Expression,
@@ -92,6 +126,19 @@ export class BabelAstFactory implements AstFactory<t.Statement, t.Expression | t
     return t.memberExpression(expression, element, /* computed */ true);
   }
 
+  createElementAccessChain(
+    expression: t.Expression,
+    element: t.Expression,
+    isOptional: boolean,
+  ): t.Expression {
+    return t.optionalMemberExpression(
+      expression,
+      element,
+      /* computed */ true,
+      /* optional */ isOptional,
+    );
+  }
+
   createExpressionStatement = t.expressionStatement;
 
   createSpreadElement(expression: t.Expression): t.SpreadElement {
@@ -100,42 +147,48 @@ export class BabelAstFactory implements AstFactory<t.Statement, t.Expression | t
 
   createFunctionDeclaration(
     functionName: string,
-    parameters: string[],
+    parameters: Parameter<t.TSType>[],
     body: t.Statement,
+    returnType: t.TSType | null,
   ): t.Statement {
     assert(body, t.isBlockStatement, 'a block');
-    return t.functionDeclaration(
+    const fn = t.functionDeclaration(
       t.identifier(functionName),
-      parameters.map((param) => t.identifier(param)),
+      parameters.map((param) => this.identifierWithType(param.name, param.type)),
       body,
     );
+    return this.attachReturnType(fn, returnType);
   }
 
   createArrowFunctionExpression(
-    parameters: string[],
+    parameters: Parameter<t.TSType>[],
     body: t.Statement | t.Expression,
+    returnType: t.TSType | null,
   ): t.Expression {
     if (t.isStatement(body)) {
       assert(body, t.isBlockStatement, 'a block');
     }
-    return t.arrowFunctionExpression(
-      parameters.map((param) => t.identifier(param)),
+    const fn = t.arrowFunctionExpression(
+      parameters.map((param) => this.identifierWithType(param.name, param.type)),
       body,
     );
+    return this.attachReturnType(fn, returnType);
   }
 
   createFunctionExpression(
     functionName: string | null,
-    parameters: string[],
+    parameters: Parameter<t.TSType>[],
     body: t.Statement,
+    returnType: t.TSType | null,
   ): t.Expression {
     assert(body, t.isBlockStatement, 'a block');
     const name = functionName !== null ? t.identifier(functionName) : null;
-    return t.functionExpression(
+    const fn = t.functionExpression(
       name,
-      parameters.map((param) => t.identifier(param)),
+      parameters.map((param) => this.identifierWithType(param.name, param.type)),
       body,
     );
+    return this.attachReturnType(fn, returnType);
   }
 
   createIdentifier = t.identifier;
@@ -143,18 +196,17 @@ export class BabelAstFactory implements AstFactory<t.Statement, t.Expression | t
   createIfStatement = t.ifStatement;
 
   createDynamicImport(url: string | t.Expression): t.Expression {
-    return this.createCallExpression(
-      t.import(),
-      [typeof url === 'string' ? t.stringLiteral(url) : url],
-      false /* pure */,
-    );
+    return t.importExpression(typeof url === 'string' ? t.stringLiteral(url) : url);
   }
 
   createLiteral(value: string | number | boolean | null | undefined): t.Expression {
     if (typeof value === 'string') {
       return t.stringLiteral(value);
     } else if (typeof value === 'number') {
-      return t.numericLiteral(value);
+      if (Number.isNaN(value)) {
+        return t.identifier('NaN');
+      }
+      return t.valueToNode(value);
     } else if (typeof value === 'boolean') {
       return t.booleanLiteral(value);
     } else if (value === undefined) {
@@ -180,7 +232,11 @@ export class BabelAstFactory implements AstFactory<t.Statement, t.Expression | t
         const key = prop.quoted
           ? t.stringLiteral(prop.propertyName)
           : t.identifier(prop.propertyName);
-        return t.objectProperty(key, prop.value);
+        const propNode = t.objectProperty(key, prop.value);
+        if (prop.leadingComments) {
+          this.attachComments(propNode, prop.leadingComments);
+        }
+        return propNode;
       }),
     );
   }
@@ -189,6 +245,19 @@ export class BabelAstFactory implements AstFactory<t.Statement, t.Expression | t
 
   createPropertyAccess(expression: t.Expression, propertyName: string): t.Expression {
     return t.memberExpression(expression, t.identifier(propertyName), /* computed */ false);
+  }
+
+  createPropertyAccessChain(
+    expression: t.Expression,
+    propertyName: string,
+    isOptional: boolean,
+  ): t.Expression {
+    return t.optionalMemberExpression(
+      expression,
+      t.identifier(propertyName),
+      /* computed */ false,
+      /* optional */ isOptional,
+    );
   }
 
   createReturnStatement(expression: t.Expression | null): t.Statement {
@@ -219,15 +288,24 @@ export class BabelAstFactory implements AstFactory<t.Statement, t.Expression | t
     return t.unaryExpression('void', expression);
   }
 
-  createUnaryExpression = t.unaryExpression;
+  createUnaryExpression(
+    operator: UnaryOperator,
+    operand: t.Expression,
+    isPrefix = true,
+  ): t.Expression {
+    return operator === '++' || operator === '--'
+      ? t.updateExpression(operator, operand as t.Identifier, isPrefix)
+      : t.unaryExpression(operator, operand);
+  }
 
   createVariableDeclaration(
     variableName: string,
     initializer: t.Expression | null,
-    type: VariableDeclarationType,
+    variableType: VariableDeclarationType,
+    type: t.TSType | null,
   ): t.Statement {
-    return t.variableDeclaration(type, [
-      t.variableDeclarator(t.identifier(variableName), initializer),
+    return t.variableDeclaration(variableType, [
+      t.variableDeclarator(this.identifierWithType(variableName, type), initializer),
     ]);
   }
 
@@ -246,7 +324,7 @@ export class BabelAstFactory implements AstFactory<t.Statement, t.Expression | t
       // Add in the filename so that we can map to external template files.
       // Note that Babel gets confused if you specify a filename when it is the original source
       // file. This happens when the template is inline, in which case just use `undefined`.
-      filename: sourceMapRange.url !== this.sourceUrl ? sourceMapRange.url : undefined,
+      filename: sourceMapRange.url !== this.sourcePath ? sourceMapRange.url : undefined,
       start: {
         line: sourceMapRange.start.line + 1, // lines are 1-based in Babel.
         column: sourceMapRange.start.column,
@@ -261,6 +339,91 @@ export class BabelAstFactory implements AstFactory<t.Statement, t.Expression | t
 
     return node;
   }
+
+  createBuiltInType(type: BuiltInType): t.TSType {
+    switch (type) {
+      case 'any':
+        return t.tsAnyKeyword();
+      case 'boolean':
+        return t.tsBooleanKeyword();
+      case 'number':
+        return t.tsNumberKeyword();
+      case 'string':
+        return t.tsStringKeyword();
+      case 'function':
+        return t.tsTypeReference(t.identifier('Function'));
+      case 'never':
+        return t.tsNeverKeyword();
+      case 'unknown':
+        return t.tsUnknownKeyword();
+    }
+  }
+
+  createExpressionType(expression: t.Expression, typeParams: t.TSType[] | null): t.TSType {
+    const typeName = getEntityTypeFromExpression(expression);
+    return t.tsTypeReference(
+      typeName,
+      typeParams ? t.tsTypeParameterInstantiation(typeParams) : null,
+    );
+  }
+
+  createArrayType(elementType: t.TSType): t.TSType {
+    return t.tsArrayType(elementType);
+  }
+
+  createMapType(valueType: t.TSType): t.TSType {
+    const keySignature = this.identifierWithType('key', this.createBuiltInType('string'));
+    return t.tsTypeLiteral([t.tsIndexSignature([keySignature], t.tsTypeAnnotation(valueType))]);
+  }
+
+  transplantType(type: t.TSType): t.TSType {
+    if (t.isNode(type) && t.isTSType(type)) {
+      return type;
+    }
+    throw new Error('Attempting to transplant a type node from a non-Babel AST: ' + type);
+  }
+
+  private identifierWithType(name: string, type: t.TSType | null): t.Identifier {
+    const node = t.identifier(name);
+
+    if (this.typesEnabled && type != null) {
+      node.typeAnnotation = t.tsTypeAnnotation(type);
+    }
+
+    return node;
+  }
+
+  private attachReturnType<
+    T extends t.FunctionDeclaration | t.FunctionExpression | t.ArrowFunctionExpression,
+  >(node: T, returnType: t.TSType | null): T {
+    if (this.typesEnabled && returnType !== null) {
+      node.returnType = t.tsTypeAnnotation(returnType);
+    }
+
+    return node;
+  }
+}
+
+function getEntityTypeFromExpression(
+  expression: t.Expression | t.Super,
+): t.Identifier | t.TSQualifiedName {
+  if (t.isIdentifier(expression)) {
+    return expression;
+  }
+
+  if (t.isMemberExpression(expression)) {
+    const left = getEntityTypeFromExpression(expression.object);
+
+    if (!t.isIdentifier(expression.property)) {
+      throw new Error(
+        `Unsupported property access for type reference: ${expression.property.type}`,
+      );
+    }
+
+    return t.tsQualifiedName(left, expression.property);
+  }
+
+  throw new Error(`Unsupported expression for type reference: ${expression.type}`);
 }
 
 function isLExpression(expr: t.Expression): expr is Extract<t.LVal, t.Expression> {

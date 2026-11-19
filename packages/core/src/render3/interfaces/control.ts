@@ -45,6 +45,9 @@ export interface ControlDirectiveHost<_TPassthroughInput extends string | undefi
    */
   readonly customControl: unknown | undefined;
 
+  /** The native DOM element for the host node, if applicable. */
+  readonly nativeElement: HTMLElement;
+
   /**
    * Registers a listener that will be called when the custom control's value changes.
    *
@@ -74,11 +77,15 @@ export interface ControlDirectiveHost<_TPassthroughInput extends string | undefi
   /**
    * Updates a property binding on all directives on this node, aside from the control directive
    * itself.
+   *
+   * @param inputName Name of the input to update.
+   * @param value New value to write to the input.
+   * @param writePredicate Optional predicate function that receives the current value of the
+   * input and the directive instance to decide if the value should be written.
    */
-  setInputOnDirectives(inputName: string, value: unknown): boolean;
-
-  /**
-   * Listens to a DOM event on the host element.
-   */
-  listenToDom(eventName: string, listener: (event: Event) => void): void;
+  setInputOnDirectives(
+    inputName: string,
+    value: unknown,
+    writePredicate?: (currentValue: unknown, directive: unknown) => boolean,
+  ): boolean;
 }

@@ -1,6 +1,6 @@
 # Migration to lazy-loaded routes
 
-This schematic helps developers to convert eagerly loaded component routes to lazy loaded routes. This allows the build process to split the production bundle into smaller chunks, to avoid big JS bundle that includes all routes, which negatively affects initial page load of an application.
+This schematic helps developers to convert eagerly loaded component routes to lazy loaded routes. This allows the build process to split the production bundle into smaller chunks, to avoid a big JS bundle that includes all routes, which negatively affects initial page load of an application.
 
 Run the schematic using the following command:
 
@@ -31,8 +31,9 @@ The migration will check all the components in the routes, check if they are sta
 
 #### Before
 
-```typescript
-// app.module.ts
+```typescript {header: "app.module.ts"}
+import {NgModule} from '@angular/core';
+import {RouterModule} from '@angular/router';
 import {Home} from './home';
 
 @NgModule({
@@ -51,8 +52,7 @@ export class AppModule {}
 
 #### After
 
-```typescript
-// app.module.ts
+```typescript {header: "app.module.ts"}
 @NgModule({
   imports: [
     RouterModule.forRoot([

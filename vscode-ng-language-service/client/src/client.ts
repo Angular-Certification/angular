@@ -26,6 +26,7 @@ import {
 } from '../../common/requests';
 import {NodeModule, resolve, Version} from '../../common/resolver';
 
+import {OpenJsDocLinkCommandId} from '../../common/initialize';
 import {isInsideStringLiteral, isNotTypescriptOrSupportedDecoratorField} from './embedded_support';
 
 interface GetTcbResponse {
@@ -37,6 +38,7 @@ interface GetTcbResponse {
 export class AngularLanguageClient implements vscode.Disposable {
   private client: lsp.LanguageClient | null = null;
   private readonly disposables: vscode.Disposable[] = [];
+  private readonly sessionDisposables: vscode.Disposable[] = [];
   private readonly outputChannel: vscode.OutputChannel;
   private readonly clientOptions: lsp.LanguageClientOptions;
   private readonly name = 'Angular Language Service';
@@ -45,11 +47,19 @@ export class AngularLanguageClient implements vscode.Disposable {
   private readonly fileToIsInAngularProjectMap = new Map<string, boolean>();
 
   constructor(private readonly context: vscode.ExtensionContext) {
-    vscode.workspace.registerTextDocumentContentProvider('angular-embedded-content', {
-      provideTextDocumentContent: (uri) => {
-        return this.virtualDocumentContents.get(uri.toString());
-      },
-    });
+    this.disposables.push(
+      vscode.workspace.registerTextDocumentContentProvider('angular-embedded-content', {
+        provideTextDocumentContent: (uri) => {
+          return this.virtualDocumentContents.get(uri.toString());
+        },
+      }),
+    );
+
+    this.disposables.push(
+      vscode.workspace.onDidChangeConfiguration(() => {
+        this.fileToIsInAngularProjectMap.clear();
+      }),
+    );
 
     const config = vscode.workspace.getConfiguration();
     const useClientSideWatching = config.get('angular.server.useClientSideFileWatcher');
@@ -76,13 +86,16 @@ export class AngularLanguageClient implements vscode.Disposable {
         {scheme: 'file', language: 'typescript'},
       ],
       synchronize: {
+        configurationSection: ['angular', 'typescript', 'editor.inlayHints'],
         fileEvents,
       },
       // Don't let our output console pop open
       revealOutputChannelOn: lsp.RevealOutputChannelOn.Never,
       outputChannel: this.outputChannel,
       markdown: {
-        isTrusted: true,
+        isTrusted: {
+          enabledCommands: [OpenJsDocLinkCommandId],
+        },
       },
       middleware: {
         provideCodeActions: async (
@@ -230,6 +243,15 @@ export class AngularLanguageClient implements vscode.Disposable {
 
           return angularCompletionsPromise;
         },
+        provideDocumentSymbols: async (
+          document: vscode.TextDocument,
+          token: vscode.CancellationToken,
+          next: lsp.ProvideDocumentSymbolsSignature,
+        ) => {
+          if (await this.isInAngularProject(document)) {
+            return next(document, token);
+          }
+        },
         provideFoldingRanges: async (
           document: vscode.TextDocument,
           context: vscode.FoldingContext,
@@ -253,6 +275,29 @@ export class AngularLanguageClient implements vscode.Disposable {
           ) {
             return next(document, position, token);
           }
+        },
+        provideInlayHints: async (
+          document: vscode.TextDocument,
+          range: vscode.Range,
+          token: vscode.CancellationToken,
+          next,
+        ) => {
+          if (!(await this.isInAngularProject(document))) {
+            return null;
+          }
+
+          if (
+            document.languageId === 'typescript' &&
+            !document.getText().includes('@angular/core')
+          ) {
+            return null;
+          }
+
+          // For TypeScript files, we always request Angular inlay hints.
+          // The server is responsible for filtering hints that do not intersect
+          // with the requested span and unsupported TS regions.
+
+          return next(document, range, token);
         },
       },
     };
@@ -286,7 +331,9 @@ export class AngularLanguageClient implements vscode.Disposable {
         // but do not cache the result so we can try to get the real answer on follow-up requests.
         return false;
       }
-      this.fileToIsInAngularProjectMap.set(uri, response);
+      if (response) {
+        this.fileToIsInAngularProjectMap.set(uri, true);
+      }
       return response;
     } catch {
       return false;
@@ -368,7 +415,11 @@ export class AngularLanguageClient implements vscode.Disposable {
     await this.client.start();
     // Must wait for the client to be ready before registering notification
     // handlers.
-    this.disposables.push(registerNotificationHandlers(this.client));
+    this.sessionDisposables.push(
+      registerNotificationHandlers(this.client, () => {
+        this.fileToIsInAngularProjectMap.clear();
+      }),
+    );
   }
 
   /**
@@ -387,8 +438,7 @@ export class AngularLanguageClient implements vscode.Disposable {
       args.push('--logVerbosity', ngLog);
     }
 
-    const ngProbeLocations = getProbeLocations(this.context.extensionPath);
-    args.push('--ngProbeLocations', ngProbeLocations.join(','));
+    args.push('--ngProbeLocations', this.context.extensionPath);
 
     const includeAutomaticOptionalChainCompletions = config.get<boolean>(
       'angular.suggest.includeAutomaticOptionalChainCompletions',
@@ -456,12 +506,16 @@ export class AngularLanguageClient implements vscode.Disposable {
       args.push('--suppressAngularDiagnosticCodes', suppressAngularDiagnosticCodes);
     }
 
-    const tsdk = config.get('typescript.tsdk', '');
+    // Note: Document symbols settings (angular.documentSymbols.enabled,
+    // angular.documentSymbols.showImplicitForVariables) are now fetched
+    // dynamically via workspace/configuration request by the server.
+    // This allows users to change these settings without restarting.
+
+    const tsdk = await this.getTsdkPath();
     if (tsdk.trim().length > 0) {
       args.push('--tsdk', tsdk);
     }
-    const tsProbeLocations = [...getProbeLocations(this.context.extensionPath)];
-    args.push('--tsProbeLocations', tsProbeLocations.join(','));
+    args.push('--tsProbeLocations', this.context.extensionPath);
 
     const supportClientSide = config.get('angular.server.useClientSideFileWatcher');
 
@@ -481,7 +535,7 @@ export class AngularLanguageClient implements vscode.Disposable {
     }
     await this.client.stop();
     this.outputChannel.clear();
-    this.dispose();
+    this.disposeSessionDisposables();
     this.client = null;
     this.fileToIsInAngularProjectMap.clear();
     this.virtualDocumentContents.clear();
@@ -563,17 +617,101 @@ export class AngularLanguageClient implements vscode.Disposable {
     );
   }
 
+  private disposeSessionDisposables(): void {
+    for (
+      let disposable = this.sessionDisposables.pop();
+      disposable !== undefined;
+      disposable = this.sessionDisposables.pop()
+    ) {
+      disposable.dispose();
+    }
+  }
+
+  private async getTsdkPath(): Promise<string> {
+    const config = vscode.workspace.getConfiguration();
+    const jsTsTsdkInspect = config.inspect<string>('js/ts.tsdk.path');
+    const tsTsdkInspect = config.inspect<string>('typescript.tsdk');
+
+    // 1. Check workspace/folder settings first (highest priority)
+    // ONLY check or load workspace-level settings if the workspace is trusted
+    if (vscode.workspace.isTrusted) {
+      const jsTsWorkspaceTsdk = (
+        jsTsTsdkInspect?.workspaceValue ?? jsTsTsdkInspect?.workspaceFolderValue
+      )?.trim();
+      const tsWorkspaceTsdk = (
+        tsTsdkInspect?.workspaceValue ?? tsTsdkInspect?.workspaceFolderValue
+      )?.trim();
+      const workspaceTsdk = jsTsWorkspaceTsdk || tsWorkspaceTsdk;
+
+      if (workspaceTsdk) {
+        const stateKey = `approvedTsdk:${workspaceTsdk}`;
+        const isApproved = this.context.workspaceState.get<boolean>(stateKey);
+
+        if (isApproved) {
+          if (!path.isAbsolute(workspaceTsdk)) {
+            const workspaceFolders = vscode.workspace.workspaceFolders || [];
+            for (const folder of workspaceFolders) {
+              const absolutePath = path.join(folder.uri.fsPath, workspaceTsdk);
+              if (fs.existsSync(path.join(absolutePath, 'tsserverlibrary.js'))) {
+                return absolutePath;
+              }
+            }
+            if (workspaceFolders.length > 0) {
+              return path.join(workspaceFolders[0].uri.fsPath, workspaceTsdk);
+            }
+          }
+          return workspaceTsdk;
+        }
+
+        if (isApproved === undefined) {
+          // Prompt the user asynchronously, without blocking current server initialization
+          this.promptForTsdkApproval(stateKey);
+        }
+
+        // Fall back to globalValue (or bundled) while waiting for approval or if rejected
+      }
+    }
+
+    return jsTsTsdkInspect?.globalValue?.trim() ?? tsTsdkInspect?.globalValue?.trim() ?? '';
+  }
+
+  private async promptForTsdkApproval(stateKey: string): Promise<void> {
+    const allowOption = 'Allow';
+    const disallowOption = 'Disallow';
+
+    const choice = await vscode.window.showWarningMessage(
+      `This workspace configures a custom TypeScript compiler path via 'js/ts.tsdk.path' or 'typescript.tsdk'. ` +
+        `Do you want to allow the Angular Language Service to load the TypeScript compiler from this path?`,
+      allowOption,
+      disallowOption,
+    );
+
+    if (choice === allowOption) {
+      await this.context.workspaceState.update(stateKey, true);
+      // Restart the language server so it launches with the newly authorized compiler path
+      await vscode.commands.executeCommand('angular.restartNgServer');
+    } else {
+      // Remember rejection to avoid repeatedly prompting on startup/activation
+      await this.context.workspaceState.update(stateKey, false);
+    }
+  }
+
   dispose() {
+    this.disposeSessionDisposables();
     for (let d = this.disposables.pop(); d !== undefined; d = this.disposables.pop()) {
       d.dispose();
     }
   }
 }
 
-function registerNotificationHandlers(client: lsp.LanguageClient): vscode.Disposable {
+function registerNotificationHandlers(
+  client: lsp.LanguageClient,
+  onProjectStateChange: () => void,
+): vscode.Disposable {
   const disposables: vscode.Disposable[] = [];
   disposables.push(
     client.onNotification(ProjectLoadingStart, () => {
+      onProjectStateChange();
       vscode.window.withProgress(
         {
           location: vscode.ProgressLocation.Window,
@@ -581,7 +719,10 @@ function registerNotificationHandlers(client: lsp.LanguageClient): vscode.Dispos
         },
         () =>
           new Promise<void>((resolve) => {
-            client.onNotification(ProjectLoadingFinish, resolve);
+            client.onNotification(ProjectLoadingFinish, () => {
+              onProjectStateChange();
+              resolve();
+            });
           }),
       );
     }),
@@ -629,24 +770,6 @@ function registerNotificationHandlers(client: lsp.LanguageClient): vscode.Dispos
   );
 
   return vscode.Disposable.from(...disposables);
-}
-
-/**
- * Return the paths for the module that corresponds to the specified `configValue`,
- * and use the specified `bundled` as fallback if none is provided.
- * @param configName
- * @param bundled
- */
-function getProbeLocations(bundled: string): string[] {
-  const locations = [];
-  // Prioritize the bundled version
-  locations.push(bundled);
-  // Look in workspaces currently open
-  const workspaceFolders = vscode.workspace.workspaceFolders || [];
-  for (const folder of workspaceFolders) {
-    locations.push(folder.uri.fsPath);
-  }
-  return locations;
 }
 
 function extensionVersionCompatibleWithAllProjects(serverModuleLocation: string): boolean {

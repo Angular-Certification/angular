@@ -9,7 +9,12 @@
 import * as ir from '../../ir';
 import type {ComponentCompilationJob, ViewCompilationUnit} from '../compilation';
 
-const ELIGIBLE_CONTROL_PROPERTIES = new Set(['formField']);
+const ELIGIBLE_CONTROL_PROPERTIES = new Map<string, Set<ir.OpKind>>([
+  ['formField', new Set([ir.OpKind.Property])],
+  ['formControl', new Set([ir.OpKind.Property])],
+  ['formControlName', new Set([ir.OpKind.Property, ir.OpKind.Attribute])],
+  ['ngModel', new Set([ir.OpKind.Attribute, ir.OpKind.Property, ir.OpKind.TwoWayProperty])],
+]);
 
 export function specializeControlProperties(job: ComponentCompilationJob): void {
   for (const unit of job.units) {
@@ -19,11 +24,17 @@ export function specializeControlProperties(job: ComponentCompilationJob): void 
 
 function processView(view: ViewCompilationUnit): void {
   for (const op of view.update) {
-    if (op.kind !== ir.OpKind.Property) {
+    // Handle Property ops, TwoWayProperty ops (for [(ngModel)]), and Attribute ops (for static formControlName="name")
+    if (
+      op.kind !== ir.OpKind.Property &&
+      op.kind !== ir.OpKind.TwoWayProperty &&
+      op.kind !== ir.OpKind.Attribute
+    ) {
       continue;
     }
 
-    if (ELIGIBLE_CONTROL_PROPERTIES.has(op.name)) {
+    const eligibleOps = ELIGIBLE_CONTROL_PROPERTIES.get(op.name);
+    if (eligibleOps !== undefined && eligibleOps.has(op.kind)) {
       addControlInstruction(view, op);
     }
   }
@@ -32,11 +43,8 @@ function processView(view: ViewCompilationUnit): void {
 const CONTROL_OP_CREATE_KINDS = new Set([
   ir.OpKind.Container,
   ir.OpKind.ContainerStart,
-  ir.OpKind.ContainerEnd,
   ir.OpKind.Element,
   ir.OpKind.ElementStart,
-  ir.OpKind.ElementEnd,
-  ir.OpKind.Template,
 ]);
 
 function isRelevantCreateOp(createOp: ir.CreateOp): createOp is ir.CreateOp & {xref: ir.XrefId} {
@@ -44,22 +52,25 @@ function isRelevantCreateOp(createOp: ir.CreateOp): createOp is ir.CreateOp & {x
 }
 
 function findCreateInstruction(view: ViewCompilationUnit, target: ir.XrefId): ir.CreateOp | null {
-  let lastFoundOp: ir.CreateOp | null = null;
   for (const createOp of view.create) {
-    if (!isRelevantCreateOp(createOp) || createOp.xref !== target) {
-      continue;
+    if (isRelevantCreateOp(createOp) && createOp.xref === target) {
+      return createOp;
     }
-
-    lastFoundOp = createOp;
   }
 
-  return lastFoundOp;
+  return null;
 }
 
-function addControlInstruction(view: ViewCompilationUnit, propertyOp: ir.PropertyOp): void {
+function addControlInstruction(
+  view: ViewCompilationUnit,
+  propertyOp: ir.PropertyOp | ir.TwoWayPropertyOp | ir.AttributeOp,
+): void {
   const targetCreateOp = findCreateInstruction(view, propertyOp.target);
   if (targetCreateOp === null) {
-    throw new Error(`No create instruction found for control target ${propertyOp.target}`);
+    // If we didn't find a relevant create instruction, it's possible this property
+    // was applied to an element that doesn't support control instructions (like a
+    // structural directive or block). We can safely ignore it.
+    return;
   }
 
   const controlCreateOp = ir.createControlCreateOp(propertyOp.sourceSpan);

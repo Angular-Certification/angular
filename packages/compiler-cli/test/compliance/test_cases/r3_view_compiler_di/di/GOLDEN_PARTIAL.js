@@ -59,7 +59,7 @@ i0.ɵɵngDeclareClassMetadata({ minVersion: "12.0.0", version: "0.0.0-PLACEHOLDE
 import * as i0 from "@angular/core";
 export declare class MyService {
     static ɵfac: i0.ɵɵFactoryDeclaration<MyService, never>;
-    static ɵprov: i0.ɵɵInjectableDeclaration<MyService>;
+    static ɵprov: i0.ɵɵInjectableDeclaration<any>;
 }
 export declare class MyComponent {
     constructor(name: string, other: string, s1: MyService, s2: MyService, s4: MyService, s3: MyService, s5: MyService, s6: MyService);
@@ -97,7 +97,7 @@ declare class MyDependency {
 export declare class MyService {
     constructor(dep: MyDependency);
     static ɵfac: i0.ɵɵFactoryDeclaration<MyService, never>;
-    static ɵprov: i0.ɵɵInjectableDeclaration<MyService>;
+    static ɵprov: i0.ɵɵInjectableDeclaration<any>;
 }
 export {};
 
@@ -130,7 +130,7 @@ declare class MyDependency {
 export declare class MyService {
     constructor(dep: MyDependency);
     static ɵfac: i0.ɵɵFactoryDeclaration<MyService, [null, { optional: true; }]>;
-    static ɵprov: i0.ɵɵInjectableDeclaration<MyService>;
+    static ɵprov: i0.ɵɵInjectableDeclaration<any>;
 }
 export {};
 
@@ -159,7 +159,7 @@ i0.ɵɵngDeclareClassMetadata({ minVersion: "12.0.0", version: "0.0.0-PLACEHOLDE
 import * as i0 from "@angular/core";
 export declare class MyService {
     static ɵfac: i0.ɵɵFactoryDeclaration<MyService, never>;
-    static ɵprov: i0.ɵɵInjectableDeclaration<MyService>;
+    static ɵprov: i0.ɵɵInjectableDeclaration<any>;
 }
 
 /****************************************************************************************************
@@ -191,7 +191,7 @@ i0.ɵɵngDeclareClassMetadata({ minVersion: "12.0.0", version: "0.0.0-PLACEHOLDE
 import * as i0 from "@angular/core";
 export declare class MyService {
     static ɵfac: i0.ɵɵFactoryDeclaration<MyService, never>;
-    static ɵprov: i0.ɵɵInjectableDeclaration<MyService>;
+    static ɵprov: i0.ɵɵInjectableDeclaration<any>;
 }
 
 /****************************************************************************************************
@@ -221,7 +221,7 @@ i0.ɵɵngDeclareClassMetadata({ minVersion: "12.0.0", version: "0.0.0-PLACEHOLDE
 import * as i0 from "@angular/core";
 export declare class MyService {
     static ɵfac: i0.ɵɵFactoryDeclaration<MyService, never>;
-    static ɵprov: i0.ɵɵInjectableDeclaration<MyService>;
+    static ɵprov: i0.ɵɵInjectableDeclaration<any>;
 }
 
 /****************************************************************************************************
@@ -232,12 +232,13 @@ import * as i0 from "@angular/core";
 class SomeDep {
 }
 class MyAlternateService {
-    static ɵfac = i0.ɵɵngDeclareFactory({ minVersion: "12.0.0", version: "0.0.0-PLACEHOLDER", ngImport: i0, type: MyAlternateService, deps: [], target: i0.ɵɵFactoryTarget.Injectable });
+    constructor(dep) { }
+    static ɵfac = i0.ɵɵngDeclareFactory({ minVersion: "12.0.0", version: "0.0.0-PLACEHOLDER", ngImport: i0, type: MyAlternateService, deps: [{ token: SomeDep }], target: i0.ɵɵFactoryTarget.Injectable });
     static ɵprov = i0.ɵɵngDeclareInjectable({ minVersion: "12.0.0", version: "0.0.0-PLACEHOLDER", ngImport: i0, type: MyAlternateService });
 }
 i0.ɵɵngDeclareClassMetadata({ minVersion: "12.0.0", version: "0.0.0-PLACEHOLDER", ngImport: i0, type: MyAlternateService, decorators: [{
             type: Injectable
-        }] });
+        }], ctorParameters: () => [{ type: SomeDep }] });
 export class MyService {
     static ɵfac = i0.ɵɵngDeclareFactory({ minVersion: "12.0.0", version: "0.0.0-PLACEHOLDER", ngImport: i0, type: MyService, deps: [], target: i0.ɵɵFactoryTarget.Injectable });
     static ɵprov = i0.ɵɵngDeclareInjectable({ minVersion: "12.0.0", version: "0.0.0-PLACEHOLDER", ngImport: i0, type: MyService, providedIn: 'root', useClass: MyAlternateService, deps: [{ token: SomeDep }] });
@@ -253,7 +254,7 @@ i0.ɵɵngDeclareClassMetadata({ minVersion: "12.0.0", version: "0.0.0-PLACEHOLDE
 import * as i0 from "@angular/core";
 export declare class MyService {
     static ɵfac: i0.ɵɵFactoryDeclaration<MyService, never>;
-    static ɵprov: i0.ɵɵInjectableDeclaration<MyService>;
+    static ɵprov: i0.ɵɵInjectableDeclaration<any>;
 }
 
 /****************************************************************************************************
@@ -318,12 +319,12 @@ i0.ɵɵngDeclareClassMetadata({ minVersion: "12.0.0", version: "0.0.0-PLACEHOLDE
 import * as i0 from "@angular/core";
 export declare class Dep {
     static ɵfac: i0.ɵɵFactoryDeclaration<Dep, never>;
-    static ɵprov: i0.ɵɵInjectableDeclaration<Dep>;
+    static ɵprov: i0.ɵɵInjectableDeclaration<any>;
 }
 export declare class Service {
     constructor(dep: Dep);
     static ɵfac: i0.ɵɵFactoryDeclaration<Service, never>;
-    static ɵprov: i0.ɵɵInjectableDeclaration<Service>;
+    static ɵprov: i0.ɵɵInjectableDeclaration<any>;
 }
 export declare class Mod {
     static ɵfac: i0.ɵɵFactoryDeclaration<Mod, never>;
@@ -407,21 +408,21 @@ import { PipeTransform } from '@angular/core';
 import * as i0 from "@angular/core";
 declare class Service {
     static ɵfac: i0.ɵɵFactoryDeclaration<Service, never>;
-    static ɵprov: i0.ɵɵInjectableDeclaration<Service>;
+    static ɵprov: i0.ɵɵInjectableDeclaration<any>;
 }
 export declare class MyPipe implements PipeTransform {
     constructor(service: Service);
     transform(value: any, ...args: any[]): any;
     static ɵfac: i0.ɵɵFactoryDeclaration<MyPipe, never>;
     static ɵpipe: i0.ɵɵPipeDeclaration<MyPipe, "myPipe", false>;
-    static ɵprov: i0.ɵɵInjectableDeclaration<MyPipe>;
+    static ɵprov: i0.ɵɵInjectableDeclaration<any>;
 }
 export declare class MyOtherPipe implements PipeTransform {
     constructor(service: Service);
     transform(value: any, ...args: any[]): any;
     static ɵfac: i0.ɵɵFactoryDeclaration<MyOtherPipe, never>;
     static ɵpipe: i0.ɵɵPipeDeclaration<MyOtherPipe, "myOtherPipe", false>;
-    static ɵprov: i0.ɵɵInjectableDeclaration<MyOtherPipe>;
+    static ɵprov: i0.ɵɵInjectableDeclaration<any>;
 }
 export declare class MyApp {
     static ɵfac: i0.ɵɵFactoryDeclaration<MyApp, never>;

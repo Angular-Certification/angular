@@ -114,7 +114,7 @@ export class RouterModule {
    *
    * ```ts
    * @NgModule({
-   *   imports: [RouterModule.forRoot(ROUTES)]
+   *   imports: [RouterModule.forRoot(routes)]
    * })
    * class MyNgModule {}
    * ```
@@ -152,7 +152,11 @@ export class RouterModule {
         provideRouterScroller(),
         config?.preloadingStrategy ? withPreloading(config.preloadingStrategy).ɵproviders : [],
         config?.initialNavigation ? provideInitialNavigation(config) : [],
-        config?.bindToComponentInputs ? withComponentInputBinding().ɵproviders : [],
+        config?.bindToComponentInputs
+          ? withComponentInputBinding(
+              typeof config.bindToComponentInputs === 'object' ? config.bindToComponentInputs : {},
+            ).ɵproviders
+          : [],
         config?.enableViewTransitions ? withViewTransitions().ɵproviders : [],
         provideRouterInitializer(),
       ],
@@ -166,7 +170,7 @@ export class RouterModule {
    *
    * ```ts
    * @NgModule({
-   *   imports: [RouterModule.forChild(ROUTES)]
+   *   imports: [RouterModule.forChild(routes)]
    * })
    * class MyNgModule {}
    * ```

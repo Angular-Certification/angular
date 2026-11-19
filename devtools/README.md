@@ -66,6 +66,9 @@ Angular DevTools panel and click "Reload frame", and refresh the page you're ins
 
 #### Debugging
 
+For how the panel, background worker, content scripts, and backend connect per tab and pass messages, see
+[docs/connection.md](docs/connection.md).
+
 Depending on which script you want to debug, you can find them in different locations. In debug mode, these should all
 have sourcemaps loaded and be unminified.
 
@@ -83,6 +86,10 @@ have sourcemaps loaded and be unminified.
   - `ng_validate_bundle.js`
 - The background service worker is found at `chrome://extensions`.
   - Click on the "Angular DevTools" extension and the "Inspect Views > service worker" button to open a debugger.
+
+### Enabling sourcemaps
+
+To enable sourcemaps you need to add the `sourcemap = "inline"` flag to the `esbuild` macro located in `tools/defaults.bzl`.
 
 ### Running End-to-End Tests
 
