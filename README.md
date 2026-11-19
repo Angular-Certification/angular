@@ -1,4 +1,4 @@
-> **Production:** https://cert-angular-docs.netlify.app — `.github/workflows/production.yaml` deploys `main` to Netlify. in the certificates.dev exam docs drawer. the Angular docs shown
+> **Production:** https://cert-angular-docs.netlify.app — the Angular docs shown in the certificates.dev exam docs drawer. `.github/workflows/production.yaml` deploys `main` to Netlify.
 
 <h1 align="center">Angular - The modern web developer's platform</h1>
 
