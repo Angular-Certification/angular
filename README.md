@@ -1,3 +1,5 @@
+> **Production:** https://cert-angular-docs.netlify.app — `.github/workflows/production.yaml` deploys `main` to Netlify. in the certificates.dev exam docs drawer. the Angular docs shown
+
 <h1 align="center">Angular - The modern web developer's platform</h1>
 
 <p align="center">
