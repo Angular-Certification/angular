@@ -1,9 +1,9 @@
 """Provides the rollup and dist file generation macro."""
 
-load("@aspect_bazel_lib//lib:copy_to_bin.bzl", _copy_to_bin = "copy_to_bin")
 load("@aspect_rules_esbuild//esbuild:defs.bzl", _esbuild = "esbuild")
 load("@aspect_rules_js//npm:defs.bzl", _npm_package = "npm_package")
 load("@aspect_rules_ts//ts:defs.bzl", _ts_config = "ts_config")
+load("@bazel_lib//lib:copy_to_bin.bzl", _copy_to_bin = "copy_to_bin")
 load("@devinfra//bazel/jasmine:jasmine.bzl", _jasmine_test = "jasmine_test")
 load("@devinfra//bazel/spec-bundling:index.bzl", "spec_bundle")
 load("@devinfra//bazel/ts_project:index.bzl", "strict_deps_test")
@@ -106,6 +106,18 @@ def generate_rollup_bundle(bundles):
                     "//packages/zone.js/lib:lib",
                 ],
             )
+
+def generate_types(bundles):
+    for b in bundles:
+        module_name = b[0]
+        native.genrule(
+            name = module_name + "-types",
+            outs = [module_name + ".d.ts"],
+            visibility = ["//visibility:public"],
+            # The bundles only patch globals and export nothing, so the
+            # declaration exists purely to give the subpath a `types` target.
+            cmd = "echo 'export {};' > $@",
+        )
 
 def generate_dist(bundles, output_format, umd):
     module_format = "esm.js"

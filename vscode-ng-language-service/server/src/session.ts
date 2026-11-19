@@ -6,7 +6,12 @@
  * found in the LICENSE file at https://angular.dev/license
  */
 
-import {isNgLanguageService, NgLanguageService, PluginConfig} from '@angular/language-service/api';
+import {
+  isNgLanguageService,
+  NgLanguageService,
+  PluginConfig,
+  InlayHintsConfig,
+} from '@angular/language-service/api';
 import * as ts from 'typescript/lib/tsserverlibrary';
 import {promisify} from 'util';
 import * as lsp from 'vscode-languageserver/node';
@@ -24,10 +29,12 @@ import {
   IsInAngularProject,
 } from '../../common/requests';
 
+import {clearWorkspaceConfigurationCache} from './config';
 import {tsDiagnosticToLspDiagnostic} from './diagnostic';
 import {ServerHost} from './server_host';
 import {
   filePathToUri,
+  isAngularCore,
   isConfiguredProject,
   isDebugMode,
   lspRangeToTsPositions,
@@ -39,14 +46,17 @@ import {getComponentsWithTemplateFile, onCodeLens, onCodeLensResolve} from './ha
 import {onCompletion, onCompletionResolve} from './handlers/completions';
 import {onDefinition, onTypeDefinition, onReferences} from './handlers/definitions';
 import {onFoldingRanges} from './handlers/folding';
+import {onSelectionRanges} from './handlers/selection_range';
 import {onHover} from './handlers/hover';
 import {onInitialize} from './handlers/initialization';
 import {onLinkedEditingRange} from './handlers/linked_editing_range';
+import {onDocumentSymbol} from './handlers/document_symbols';
 import {onRenameRequest, onPrepareRename} from './handlers/rename';
 import {onSignatureHelp} from './handlers/signature';
 import {onGetTcb} from './handlers/tcb';
 import {onGetTemplateLocationForComponent, isInAngularProject} from './handlers/template_info';
 import {onDidChangeWatchedFiles} from './handlers/did_change_watched_files';
+import {onInlayHint, onInlayHintResolve} from './handlers/inlay_hints';
 
 export interface SessionOptions {
   host: ServerHost;
@@ -102,6 +112,11 @@ export class Session {
   readonly renameDisabledProjects: WeakSet<ts.server.Project> = new WeakSet();
   clientCapabilities: lsp.ClientCapabilities = {};
   readonly defaultPreferences: ts.UserPreferences = {};
+  /**
+   * Configuration for Angular inlay hints.
+   * Updated via workspace/didChangeConfiguration notifications.
+   */
+  inlayHintsConfig: InlayHintsConfig = {};
 
   constructor(options: SessionOptions) {
     this.includeAutomaticOptionalChainCompletions =
@@ -230,6 +245,13 @@ export class Session {
     conn.onDidCloseTextDocument((p) => this.onDidCloseTextDocument(p));
     conn.onDidChangeTextDocument((p) => this.onDidChangeTextDocument(p));
     conn.onDidSaveTextDocument((p) => this.onDidSaveTextDocument(p));
+    conn.onDidChangeConfiguration(() => {
+      clearWorkspaceConfigurationCache(this.connection);
+      // Apply updated inlay settings without requiring extension restart.
+      void this.connection.languages.inlayHint.refresh().catch(() => {
+        // Ignore if client does not support inlay hint refresh.
+      });
+    });
     conn.onDefinition((p) => onDefinition(this, p));
     conn.onTypeDefinition((p) => onTypeDefinition(this, p));
     conn.onReferences((p) => onReferences(this, p));
@@ -237,7 +259,9 @@ export class Session {
     conn.onPrepareRename((p) => onPrepareRename(this, p));
     conn.onHover((p) => onHover(this, p));
     conn.onFoldingRanges((p) => onFoldingRanges(this, p));
+    conn.onSelectionRanges((p) => onSelectionRanges(this, p));
     conn.languages.onLinkedEditingRange((p) => onLinkedEditingRange(this, p));
+    conn.onDocumentSymbol(async (p) => await onDocumentSymbol(this, p));
     conn.onCompletion((p) => onCompletion(this, p));
     conn.onCompletionResolve((p) => onCompletionResolve(this, p));
     conn.onRequest(GetComponentsWithTemplateFile, (p) => getComponentsWithTemplateFile(this, p));
@@ -251,6 +275,10 @@ export class Session {
     conn.onSignatureHelp((p) => onSignatureHelp(this, p));
     conn.onCodeAction((p) => onCodeAction(this, p));
     conn.onCodeActionResolve(async (p) => await onCodeActionResolve(this, p));
+
+    // Inlay hints (LSP 3.17)
+    conn.onRequest(lsp.InlayHintRequest.type, (p) => onInlayHint(this, p));
+    conn.onRequest(lsp.InlayHintResolveRequest.type, (p) => onInlayHintResolve(this, p));
   }
 
   private enableLanguageServiceForProject(project: ts.server.Project): void {
@@ -509,7 +537,21 @@ export class Session {
     // If they are already part of a ConfiguredProject then the following is
     // not needed.
     if (!project || project.projectKind !== ts.server.ProjectKind.Configured) {
-      const {configFileName} = this.projectService.openClientFile(scriptInfo.fileName);
+      let {configFileName} = this.projectService.openClientFile(scriptInfo.fileName);
+      if (configFileName === undefined && isExternalTemplate(scriptInfo.fileName)) {
+        // When an external template loses its configured project after it was opened (e.g.
+        // because the corresponding component file was closed and the project graph was updated),
+        // the same best-effort used in `onDidOpenTextDocument` is needed here.
+        if (this.loadProjectForExternalTemplate(scriptInfo.fileName)) {
+          ({configFileName} = this.projectService.openClientFile(scriptInfo.fileName));
+        }
+        if (configFileName === undefined) {
+          const componentProject = this.attachToComponentProject(scriptInfo);
+          if (componentProject) {
+            return componentProject;
+          }
+        }
+      }
       if (!configFileName) {
         // Failed to find a config file. There is nothing we could do.
         this.error(`No config file for ${scriptInfo.fileName}`);
@@ -524,6 +566,49 @@ export class Session {
     }
 
     return project;
+  }
+
+  /**
+   * In a composite/solution-style project with references, TypeScript will _not_ open a project
+   * for an HTML file unless the file is explicitly included in the files/includes list. This is
+   * quite unlikely to be the case for HTML files. As a best-effort to fix this, we attempt to open
+   * a TS file with the same name so that its project is loaded. Most of the time, this is going to
+   * be the component file for the external template.
+   * https://github.com/angular/vscode-ng-language-service/issues/2149
+   *
+   * Returns whether the component file was opened, i.e. whether the config lookup for the template
+   * is worth retrying.
+   */
+  private loadProjectForExternalTemplate(templatePath: string): boolean {
+    const maybeComponentTsPath = componentPathForTemplate(templatePath);
+    if (
+      this.projectService.openFiles.has(this.projectService.toPath(maybeComponentTsPath)) ||
+      // Non-component HTML files (e.g. `src/index.html`) have no sibling `.ts`; skip the
+      // open/close so we don't walk directory trees looking for a config that can't exist.
+      !this.host.fileExists(maybeComponentTsPath)
+    ) {
+      return false;
+    }
+    this.projectService.openClientFile(maybeComponentTsPath);
+    this.projectService.closeClientFile(maybeComponentTsPath);
+    return true;
+  }
+
+  /**
+   * Attaches an external template to the configured project of its component. Needed because
+   * `openClientFile` does not repeat the config lookup for a file that is already open, so it can
+   * still report no config file even though the component's project has since been loaded.
+   */
+  private attachToComponentProject(scriptInfo: ts.server.ScriptInfo): ts.server.Project | null {
+    const componentProject = this.projectService
+      .getScriptInfo(componentPathForTemplate(scriptInfo.fileName))
+      ?.containingProjects.find(isConfiguredProject);
+    if (!componentProject) {
+      return null;
+    }
+    scriptInfo.detachAllProjects();
+    scriptInfo.attachToProject(componentProject);
+    return componentProject;
   }
 
   private onDidOpenTextDocument(params: lsp.DidOpenTextDocumentParams) {
@@ -542,18 +627,15 @@ export class Session {
       // buffer in the user's editor which has not been saved to disk.
       // See https://github.com/angular/vscode-ng-language-service/issues/632
       let result = this.projectService.openClientFile(filePath, text, scriptKind);
-      // If the first opened file is an HTML file and the project is a composite/solution-style
-      // project with references, TypeScript will _not_ open a project unless the file is explicitly
-      // included in the files/includes list. This is quite unlikely to be the case for HTML files.
-      // As a best-effort to fix this, we attempt to open a TS file with the same name. Most of the
-      // time, this is going to be the component file for the external template.
-      // https://github.com/angular/vscode-ng-language-service/issues/2149
       if (result.configFileName === undefined && languageId === LanguageId.HTML) {
-        const maybeComponentTsPath = filePath.replace(/\.html$/, '.ts');
-        if (!this.projectService.openFiles.has(this.projectService.toPath(maybeComponentTsPath))) {
-          this.projectService.openClientFile(maybeComponentTsPath);
-          this.projectService.closeClientFile(maybeComponentTsPath);
+        if (this.loadProjectForExternalTemplate(filePath)) {
           result = this.projectService.openClientFile(filePath, text, scriptKind);
+        }
+        if (result.configFileName === undefined) {
+          const scriptInfo = this.projectService.getScriptInfo(filePath);
+          if (scriptInfo) {
+            this.attachToComponentProject(scriptInfo);
+          }
         }
       }
 
@@ -757,27 +839,14 @@ export class Session {
   }
 }
 
-function isAngularCore(path: string): boolean {
-  return isExternalAngularCore(path) || isInternalAngularCore(path);
-}
-
-function isExternalAngularCore(path: string): boolean {
-  return /@angular\/core\/.+\.d\.ts$/.test(path);
-}
-
-function isInternalAngularCore(path: string): boolean {
-  // path in g3
-  return (
-    path.endsWith('angular2/rc/packages/core/index.d.ts') ||
-    // angular/angular repository direct sources
-    path.includes('angular/packages/core/src')
-  );
-}
-
 function isTypeScriptFile(path: string): boolean {
   return path.endsWith('.ts');
 }
 
 function isExternalTemplate(path: string): boolean {
   return !isTypeScriptFile(path);
+}
+
+function componentPathForTemplate(templatePath: string): string {
+  return templatePath.replace(/\.html$/, '.ts');
 }

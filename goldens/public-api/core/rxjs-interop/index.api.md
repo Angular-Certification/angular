@@ -4,6 +4,7 @@
 
 ```ts
 
+import * as _angular_core from '@angular/core';
 import { MonoTypeOperatorFunction } from 'rxjs';
 import { Observable } from 'rxjs';
 import { Subscribable } from 'rxjs';
@@ -27,7 +28,7 @@ export function rxResource<T, R>(opts: RxResourceOptions<T, R>): ResourceRef<T |
 
 // @public
 export interface RxResourceOptions<T, R> extends BaseResourceOptions<T, R> {
-    // (undocumented)
+    debugName?: string;
     stream: (params: ResourceLoaderParams<R>) => Observable<T>;
 }
 
